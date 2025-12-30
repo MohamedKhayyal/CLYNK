@@ -1,9 +1,10 @@
 const jwt = require("jsonwebtoken");
-const User = require("../models/user.Model");
+const { sql } = require("../config/db.Config");
 const { sendFail } = require("../utilts/response");
 const STATUS_CODES = require("../utilts/response.Codes");
+const catchAsync = require("../utilts/catch.Async");
 
-exports.protect = async (req, res, next) => {
+exports.protect = catchAsync(async (req, res, next) => {
   let token;
 
   if (
@@ -11,7 +12,7 @@ exports.protect = async (req, res, next) => {
     req.headers.authorization.startsWith("Bearer")
   ) {
     token = req.headers.authorization.split(" ")[1];
-  } else if (req.cookies.jwt) {
+  } else if (req.cookies && req.cookies.jwt) {
     token = req.cookies.jwt;
   }
 
@@ -24,11 +25,16 @@ exports.protect = async (req, res, next) => {
     );
   }
 
-  // Verify token
   const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-  // Check user exists
-  const user = await User.findById(decoded.id);
+  const result = await sql.query`
+    SELECT id, name, email, role
+    FROM Users
+    WHERE id = ${decoded.id};
+  `;
+
+  const user = result.recordset[0];
+
   if (!user) {
     return sendFail(
       res,
@@ -39,13 +45,13 @@ exports.protect = async (req, res, next) => {
   }
 
   req.user = user;
-  next();
-};
 
-// Restrict roles
+  next();
+});
+
 exports.restrictTo = (...roles) => {
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    if (!req.user || !roles.includes(req.user.role)) {
       return sendFail(
         res,
         {},

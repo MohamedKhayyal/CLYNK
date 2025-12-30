@@ -2,6 +2,7 @@ const dotenv = require("dotenv");
 dotenv.config();
 const express = require("express");
 const path = require("path");
+const cookieParser = require("cookie-parser");
 const { connectDB } = require("./config/db.Config");
 const corsHandler = require("./middlewares/cors.Handler");
 const logger = require("./utilts/logger");
@@ -20,20 +21,29 @@ process.on("uncaughtException", (err) => {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// middlewares
+
 app.use(corsHandler);
+
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
+// Cookie parser (IMPORTANT for HttpOnly cookies)
+app.use(cookieParser());
 app.use("/img", express.static(path.join(__dirname, "uploads")));
 
 connectDB();
 
-// ROUTES
+
 app.use("/api/auth", authRoute);
 
+
 app.use((req, res, next) => {
-  next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));
+  next(
+    new AppError(
+      `Can't find ${req.originalUrl} on this server`,
+      404
+    )
+  );
 });
 
 app.use(errorHandler);
@@ -45,6 +55,7 @@ const server = app.listen(PORT, () => {
 process.on("unhandledRejection", (err) => {
   logger.error("UNHANDLED REJECTION! Shutting down...");
   logger.error(err.name, err.message);
+
   server.close(() => {
     process.exit(1);
   });

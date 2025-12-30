@@ -13,20 +13,25 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    console.log(`❌ CORS denied request from origin: ${origin}`);
-    const err = new AppError("CORS Policy: Origin not allowed", 403);
-    return callback(err);
+    return callback(
+      new AppError("CORS policy: Origin not allowed", 403),
+      false
+    );
   },
 
-  credentials: true,
+  credentials: true, 
 
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
 
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+  ],
 
-  optionsSuccessStatus: 200,
+  exposedHeaders: ["Set-Cookie"],
+
+  optionsSuccessStatus: 204, 
 };
 
-const corsHandler = cors(corsOptions);
-
-module.exports = corsHandler;
+module.exports = cors(corsOptions);
