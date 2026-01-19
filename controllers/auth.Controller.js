@@ -125,7 +125,6 @@ exports.signup = catchAsync(async (req, res, next) => {
 
     res.status(201).json({
       status: "success",
-      token,
       user: {
         user_id: user.user_id,
         email,
