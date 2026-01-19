@@ -7,11 +7,13 @@ const router = express.Router();
 
 router.post("/signup", authController.signup);
 router.post("/login", authController.login);
+router.post("/logout", auth.protect, authController.logout);
+
 router.post(
   "/create-admin",
   auth.protect,
   auth.restrictTo("admin"),
-  authController.createAdmin
+  authController.createAdmin,
 );
 
 module.exports = router;

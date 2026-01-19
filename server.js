@@ -10,6 +10,8 @@ const logger = require("./utilts/logger");
 const AppError = require("./utilts/app.Error");
 const errorHandler = require("./middlewares/error.Handler");
 const authRoute = require("./routes/auth.Route");
+const userRoute = require("./routes/user.Routes");
+const clinicRoute = require("./routes/clinic.Routes");
 
 process.on("uncaughtException", (err) => {
   logger.error("UNCAUGHT EXCEPTION! Shutting down...");
@@ -35,7 +37,8 @@ connectDB();
 
 
 app.use("/api/auth", authRoute);
-
+app.use("/api/user", userRoute);
+app.use("/api/clinic", clinicRoute);
 
 app.use((req, res, next) => {
   next(
