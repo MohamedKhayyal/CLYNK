@@ -6,12 +6,12 @@ const logger = require("../utilts/logger");
 
 const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
 
+/* ================= CREATE STAFF (NO CLINIC ID) ================= */
 exports.createStaffForClinic = catchAsync(async (req, res, next) => {
-  const clinicId = Number(req.params.id);
   const { email, password, full_name, role_title } = req.body;
   const ownerUserId = req.user.user_id;
 
-  logger.info(`Create staff for clinic ${clinicId} by user ${ownerUserId}`);
+  logger.info(`Create staff by clinic owner user ${ownerUserId}`);
 
   if (!email || !password || !full_name) {
     return next(
@@ -23,16 +23,19 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid email format", 400));
   }
 
+  /* 1️⃣ Get owner clinic */
   const clinicResult = await sql.query`
-    SELECT clinic_id FROM dbo.Clinics
-    WHERE clinic_id = ${clinicId}
-      AND owner_user_id = ${ownerUserId}
+    SELECT clinic_id
+    FROM dbo.Clinics
+    WHERE owner_user_id = ${ownerUserId}
       AND status = 'approved';
   `;
 
-  if (!clinicResult.recordset.length) {
+  const clinic = clinicResult.recordset[0];
+
+  if (!clinic) {
     return next(
-      new AppError("Clinic not found or not approved or not owned by you", 403)
+      new AppError("You do not own an approved clinic", 403)
     );
   }
 
@@ -49,7 +52,6 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
   await transaction.begin();
 
   try {
-    /* Users */
     const userResult = await transaction.request().query`
       INSERT INTO dbo.Users (email, password, user_type)
       OUTPUT INSERTED.user_id
@@ -58,26 +60,25 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
 
     const userId = userResult.recordset[0].user_id;
 
-    /* Staff */
     await transaction.request().query`
       INSERT INTO dbo.Staff
         (user_id, clinic_id, full_name, role_title)
       VALUES
-        (${userId}, ${clinicId}, ${full_name}, ${role_title});
+        (${userId}, ${clinic.clinic_id}, ${full_name}, ${role_title});
     `;
 
     await transaction.commit();
 
-    logger.info(`Staff created (user ${userId}) for clinic ${clinicId}`);
+    logger.info(`Staff created (user ${userId}) for clinic ${clinic.clinic_id}`);
 
     res.status(201).json({
       status: "success",
       staff: {
         user_id: userId,
         email,
-        clinic_id: clinicId,
         full_name,
         role_title,
+        clinic_id: clinic.clinic_id,
       },
     });
   } catch (err) {
@@ -85,4 +86,42 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
     logger.error(`Create staff failed: ${err.message}`);
     next(err);
   }
+});
+
+exports.getMyClinicStaff = catchAsync(async (req, res, next) => {
+  const ownerUserId = req.user.user_id;
+
+  logger.info(`Get staff for clinic owner user ${ownerUserId}`);
+
+  const clinicResult = await sql.query`
+    SELECT clinic_id
+    FROM dbo.Clinics
+    WHERE owner_user_id = ${ownerUserId}
+      AND status = 'approved';
+  `;
+
+  const clinic = clinicResult.recordset[0];
+
+  if (!clinic) {
+    return next(new AppError("You do not own an approved clinic", 403));
+  }
+
+  const staffResult = await sql.query`
+    SELECT
+      s.staff_id,
+      s.full_name,
+      s.role_title,
+      u.email,
+      u.is_active,
+      u.created_at
+    FROM dbo.Staff s
+    JOIN dbo.Users u ON s.user_id = u.user_id
+    WHERE s.clinic_id = ${clinic.clinic_id};
+  `;
+
+  res.status(200).json({
+    status: "success",
+    results: staffResult.recordset.length,
+    staff: staffResult.recordset,
+  });
 });

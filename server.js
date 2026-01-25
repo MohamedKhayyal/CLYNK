@@ -40,7 +40,7 @@ app.use("/api/auth", authRoute);
 app.use("/api/user", userRoute);
 app.use("/api/admin", adminClinicRoute);
 app.use("/api/clinic", clinicRoute);
-app.use("/api/clinics", staffRoute);
+app.use("/api/staff", staffRoute);
 app.use("/api/doctors", doctorRoute);
 
 app.use((req, res, next) => {
