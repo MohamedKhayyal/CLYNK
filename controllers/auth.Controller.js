@@ -5,7 +5,7 @@ const logger = require("../utilts/logger");
 const AppError = require("../utilts/app.Error");
 const catchAsync = require("../utilts/catch.Async");
 
-const ALLOWED_SIGNUP_ROLES = ["patient", "doctor", "staff"];
+const ALLOWED_SIGNUP_ROLES = ["patient", "doctor"];
 
 const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
 
@@ -48,7 +48,6 @@ exports.signup = catchAsync(async (req, res, next) => {
   }
 
   const hashedPassword = await bcrypt.hash(password, 12);
-
   const transaction = new sql.Transaction();
   await transaction.begin();
 
@@ -85,6 +84,13 @@ exports.signup = catchAsync(async (req, res, next) => {
       const { full_name, license_number, gender, years_of_experience, bio } =
         profile;
 
+      if (!full_name || !license_number) {
+        throw new AppError(
+          "Doctor full_name and license_number are required",
+          400,
+        );
+      }
+
       await transaction.request().query(`
         INSERT INTO dbo.Doctors
           (user_id, full_name, license_number, gender, years_of_experience, bio)
@@ -92,23 +98,9 @@ exports.signup = catchAsync(async (req, res, next) => {
           (${user.user_id},
            '${full_name}',
            '${license_number}',
-           '${gender}',
+           ${gender ? `'${gender}'` : "NULL"},
            ${years_of_experience ?? "NULL"},
            ${bio ? `'${bio}'` : "NULL"});
-      `);
-    }
-
-    if (role === "staff") {
-      const { clinic_id, full_name, role_title } = profile;
-
-      await transaction.request().query(`
-        INSERT INTO dbo.Staff
-          (user_id, clinic_id, full_name, role_title)
-        VALUES
-          (${user.user_id},
-           ${clinic_id},
-           '${full_name}',
-           '${role_title}');
       `);
     }
 
@@ -130,7 +122,6 @@ exports.signup = catchAsync(async (req, res, next) => {
         email,
         role: user.user_type,
         is_active: user.is_active,
-        profile: profile || null,
       },
     });
   } catch (err) {
@@ -149,13 +140,13 @@ exports.login = catchAsync(async (req, res, next) => {
     return next(new AppError("Email and password are required", 400));
   }
 
-  const result = await sql.query`
+  const userResult = await sql.query`
     SELECT user_id, password, user_type, is_active
     FROM dbo.Users
     WHERE email = ${email} AND is_active = 1;
   `;
 
-  const user = result.recordset[0];
+  const user = userResult.recordset[0];
 
   if (!user) {
     return next(new AppError("Invalid email or password", 401));
@@ -170,39 +161,35 @@ exports.login = catchAsync(async (req, res, next) => {
   let profile = null;
 
   if (user.user_type === "patient") {
-    const profileResult = await sql.query`
+    const r = await sql.query`
       SELECT full_name, date_of_birth, gender, phone, blood_type
-      FROM dbo.Patients
-      WHERE user_id = ${user.user_id};
+      FROM dbo.Patients WHERE user_id = ${user.user_id};
     `;
-    profile = profileResult.recordset[0] || null;
+    profile = r.recordset[0] || null;
   }
 
   if (user.user_type === "doctor") {
-    const profileResult = await sql.query`
+    const r = await sql.query`
       SELECT full_name, license_number, gender, years_of_experience, bio, is_verified
-      FROM dbo.Doctors
-      WHERE user_id = ${user.user_id};
+      FROM dbo.Doctors WHERE user_id = ${user.user_id};
     `;
-    profile = profileResult.recordset[0] || null;
+    profile = r.recordset[0] || null;
   }
 
   if (user.user_type === "staff") {
-    const profileResult = await sql.query`
+    const r = await sql.query`
       SELECT full_name, clinic_id, role_title
-      FROM dbo.Staff
-      WHERE user_id = ${user.user_id};
+      FROM dbo.Staff WHERE user_id = ${user.user_id};
     `;
-    profile = profileResult.recordset[0] || null;
+    profile = r.recordset[0] || null;
   }
 
   if (user.user_type === "admin") {
-    const profileResult = await sql.query`
+    const r = await sql.query`
       SELECT position_title
-      FROM dbo.Admins
-      WHERE user_id = ${user.user_id};
+      FROM dbo.Admins WHERE user_id = ${user.user_id};
     `;
-    profile = profileResult.recordset[0] || null;
+    profile = r.recordset[0] || null;
   }
 
   const token = signToken({
@@ -222,6 +209,7 @@ exports.login = catchAsync(async (req, res, next) => {
       role: user.user_type,
       is_active: user.is_active,
       profile,
+      token
     },
   });
 });
@@ -239,17 +227,15 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid email format", 400));
   }
 
-  const existingUser = await sql.query`
+  const exists = await sql.query`
     SELECT user_id FROM dbo.Users WHERE email = ${email};
   `;
 
-  if (existingUser.recordset.length > 0) {
-    logger.warn(`Create admin failed: email already exists (${email})`);
+  if (exists.recordset.length) {
     return next(new AppError("Email already exists", 409));
   }
 
   const hashedPassword = await bcrypt.hash(password, 12);
-
   const transaction = new sql.Transaction();
   await transaction.begin();
 
@@ -264,12 +250,12 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
 
     await transaction.request().query(`
       INSERT INTO dbo.Admins (user_id, position_title)
-      VALUES (${userId}, ${position_title || null});
+      VALUES (${userId}, ${position_title ? `'${position_title}'` : "NULL"});
     `);
 
     await transaction.commit();
 
-    logger.warn(`ADMIN CREATED SUCCESSFULLY: ${email} (ID=${userId})`);
+    logger.warn(`ADMIN CREATED: ${email}`);
 
     res.status(201).json({
       status: "success",
@@ -281,12 +267,6 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
     });
   } catch (err) {
     await transaction.rollback();
-
-    if (err.number === 2627 || err.number === 2601) {
-      logger.warn(`Create admin failed (duplicate email): ${email}`);
-      return next(new AppError("Email already exists", 409));
-    }
-
     logger.error(`Create admin failed: ${err.message}`);
     next(err);
   }

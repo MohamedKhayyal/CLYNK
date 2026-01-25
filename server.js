@@ -11,7 +11,10 @@ const AppError = require("./utilts/app.Error");
 const errorHandler = require("./middlewares/error.Handler");
 const authRoute = require("./routes/auth.Route");
 const userRoute = require("./routes/user.Routes");
+const adminClinicRoute = require("./routes/admin.Clinic.Routes");
 const clinicRoute = require("./routes/clinic.Routes");
+const staffRoute = require("./routes/staff.Route");
+const doctorRoute = require("./routes/doctor.Route");
 
 process.on("uncaughtException", (err) => {
   logger.error("UNCAUGHT EXCEPTION! Shutting down...");
@@ -23,30 +26,25 @@ process.on("uncaughtException", (err) => {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-
 app.use(corsHandler);
 
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
-// Cookie parser (IMPORTANT for HttpOnly cookies)
 app.use(cookieParser());
 app.use("/img", express.static(path.join(__dirname, "uploads")));
 
 connectDB();
 
-
 app.use("/api/auth", authRoute);
 app.use("/api/user", userRoute);
+app.use("/api/admin", adminClinicRoute);
 app.use("/api/clinic", clinicRoute);
+app.use("/api/clinics", staffRoute);
+app.use("/api/doctors", doctorRoute);
 
 app.use((req, res, next) => {
-  next(
-    new AppError(
-      `Can't find ${req.originalUrl} on this server`,
-      404
-    )
-  );
+  next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));
 });
 
 app.use(errorHandler);

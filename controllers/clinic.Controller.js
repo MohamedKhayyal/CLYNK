@@ -5,57 +5,73 @@ const logger = require("../utilts/logger");
 
 exports.createClinic = catchAsync(async (req, res, next) => {
   const { name, address, location, phone, email, opening_hours } = req.body;
-  const { user_id } = req.user; // من protect middleware
+  const ownerUserId = req.user.user_id; 
+  logger.info(`Create clinic attempt by user ${ownerUserId}`);
 
-  logger.info(`Create clinic attempt by admin user ${user_id}`);
-
-  if (!name) {
-    return next(new AppError("Clinic name is required", 400));
+  if (!name || !location || !email) {
+    return next(
+      new AppError("Clinic name, location and email are required", 400),
+    );
   }
 
-  /**
-   * 1️⃣ نجيب admin_id المرتبط بالـ user
-   */
-  const adminResult = await sql.query`
-    SELECT admin_id
-    FROM dbo.Admins
-    WHERE user_id = ${user_id};
+  const existingClinic = await sql.query`
+    SELECT clinic_id FROM dbo.Clinics
+    WHERE owner_user_id = ${ownerUserId};
   `;
 
-  const admin = adminResult.recordset[0];
-
-  if (!admin) {
-    return next(new AppError("Admin profile not found", 403));
+  if (existingClinic.recordset.length > 0) {
+    return next(new AppError("You already created a clinic", 409));
   }
 
-  /**
-   * 2️⃣ Create clinic
-   */
-  const clinicResult = await sql.query`
+  const result = await sql.query`
     INSERT INTO dbo.Clinics
-      (admin_id, name, address, location, phone, email, opening_hours)
-    OUTPUT INSERTED.clinic_id, INSERTED.name
+      (owner_user_id, name, address, location, phone, email, opening_hours, status)
+    OUTPUT
+      INSERTED.clinic_id,
+      INSERTED.status,
+      INSERTED.created_at
     VALUES
-      (
-        ${admin.admin_id},
-        ${name},
-        ${address || null},
-        ${location || null},
-        ${phone || null},
-        ${email || null},
-        ${opening_hours || null}
-      );
+      (${ownerUserId},
+       ${name},
+       ${address || null},
+       ${location},
+       ${phone || null},
+       ${email},
+       ${opening_hours || null},
+       'pending');
   `;
 
-  const clinic = clinicResult.recordset[0];
+  const clinic = result.recordset[0];
 
-  logger.info(`Clinic created: ${clinic.name} (ID=${clinic.clinic_id})`);
+  logger.info(`Clinic created (PENDING) id=${clinic.clinic_id}`);
 
   res.status(201).json({
     status: "success",
     clinic: {
       clinic_id: clinic.clinic_id,
-      name: clinic.name,
+      name,
+      status: clinic.status,
     },
+    message: "Clinic created successfully and pending admin approval",
+  });
+});
+
+exports.getPublicClinics = catchAsync(async (req, res) => {
+  const result = await sql.query`
+    SELECT
+      clinic_id,
+      name,
+      address,
+      location,
+      phone,
+      opening_hours
+    FROM dbo.Clinics
+    WHERE status = 'approved';
+  `;
+
+  res.status(200).json({
+    status: "success",
+    results: result.recordset.length,
+    clinics: result.recordset,
   });
 });

@@ -1,5 +1,4 @@
 const express = require("express");
-const { uploadSingle, uploadFields, resize } = require("../middlewares/upload");
 const authController = require("../controllers/auth.Controller");
 const auth = require("../middlewares/auth");
 
