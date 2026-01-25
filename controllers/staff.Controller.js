@@ -6,7 +6,6 @@ const logger = require("../utilts/logger");
 
 const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
 
-/* ================= CREATE STAFF (NO CLINIC ID) ================= */
 exports.createStaffForClinic = catchAsync(async (req, res, next) => {
   const { email, password, full_name, role_title } = req.body;
   const ownerUserId = req.user.user_id;
@@ -21,9 +20,7 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
 
   if (!EMAIL_REGEX.test(email)) {
     return next(new AppError("Invalid email format", 400));
-  }
-
-  /* 1️⃣ Get owner clinic */
+  } 
   const clinicResult = await sql.query`
     SELECT clinic_id
     FROM dbo.Clinics
