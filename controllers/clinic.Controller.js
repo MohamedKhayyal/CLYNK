@@ -1,12 +1,20 @@
 const { sql } = require("../config/db.Config");
 const catchAsync = require("../utilts/catch.Async");
 const AppError = require("../utilts/app.Error");
-const logger = require("../utilts/logger");
 
 exports.createClinic = catchAsync(async (req, res, next) => {
-  const { name, address, location, phone, email, opening_hours } = req.body;
-  const ownerUserId = req.user.user_id; 
-  logger.info(`Create clinic attempt by user ${ownerUserId}`);
+  const {
+    name,
+    address,
+    location,
+    phone,
+    email,
+    consultation_price,
+    work_from,
+    work_to,
+  } = req.body;
+
+  const ownerUserId = req.user.user_id;
 
   if (!name || !location || !email) {
     return next(
@@ -14,22 +22,20 @@ exports.createClinic = catchAsync(async (req, res, next) => {
     );
   }
 
-  const existingClinic = await sql.query`
+  const exists = await sql.query`
     SELECT clinic_id FROM dbo.Clinics
     WHERE owner_user_id = ${ownerUserId};
   `;
 
-  if (existingClinic.recordset.length > 0) {
+  if (exists.recordset.length) {
     return next(new AppError("You already created a clinic", 409));
   }
 
   const result = await sql.query`
     INSERT INTO dbo.Clinics
-      (owner_user_id, name, address, location, phone, email, opening_hours, status)
-    OUTPUT
-      INSERTED.clinic_id,
-      INSERTED.status,
-      INSERTED.created_at
+      (owner_user_id, name, address, location, phone, email,
+       consultation_price, work_from, work_to, status)
+    OUTPUT INSERTED.clinic_id, INSERTED.status
     VALUES
       (${ownerUserId},
        ${name},
@@ -37,22 +43,16 @@ exports.createClinic = catchAsync(async (req, res, next) => {
        ${location},
        ${phone || null},
        ${email},
-       ${opening_hours || null},
+       ${consultation_price || null},
+       ${work_from || null},
+       ${work_to || null},
        'pending');
   `;
 
-  const clinic = result.recordset[0];
-
-  logger.info(`Clinic created (PENDING) id=${clinic.clinic_id}`);
-
   res.status(201).json({
     status: "success",
-    clinic: {
-      clinic_id: clinic.clinic_id,
-      name,
-      status: clinic.status,
-    },
-    message: "Clinic created successfully and pending admin approval",
+    clinic: result.recordset[0],
+    message: "Clinic created and pending admin approval",
   });
 });
 
@@ -61,10 +61,11 @@ exports.getPublicClinics = catchAsync(async (req, res) => {
     SELECT
       clinic_id,
       name,
-      address,
       location,
       phone,
-      opening_hours
+      consultation_price,
+      work_from,
+      work_to
     FROM dbo.Clinics
     WHERE status = 'approved';
   `;

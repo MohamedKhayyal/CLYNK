@@ -4,12 +4,17 @@ const router = express.Router();
 const {
   createStaffForClinic,
   getMyClinicStaff,
+  verifyStaff,
 } = require("../controllers/staff.Controller");
 
-const { protect } = require("../middlewares/auth");
-const { writeLimiter } = require("../middlewares/rateLimiters");
+const { protect, restrictTo } = require("../middlewares/auth");
+const { isClinicOwner } = require("../middlewares/isClinicOwner");
 
-router.post("/", protect, writeLimiter, createStaffForClinic);
-router.get("/my-clinic", protect, getMyClinicStaff);
+router.post("/", createStaffForClinic);
+
+router.use(protect, restrictTo("doctor"), isClinicOwner);
+
+router.get("/my-clinic", getMyClinicStaff);
+router.patch("/:staffId/verify", verifyStaff);
 
 module.exports = router;

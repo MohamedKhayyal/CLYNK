@@ -2,8 +2,12 @@ CREATE TABLE dbo.Users (
     user_id INT IDENTITY(1,1) PRIMARY KEY,
     email VARCHAR(150) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
+
+    photo VARCHAR(500) NULL,   -- 👈 NEW (Cloudinary URL)
+
     user_type VARCHAR(20) NOT NULL
         CHECK (user_type IN ('patient', 'doctor', 'staff', 'admin')),
+
     is_active BIT NOT NULL DEFAULT 1,
     created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME()
 );
@@ -27,15 +31,18 @@ GO
 CREATE TABLE dbo.Clinics (
     clinic_id INT IDENTITY(1,1) PRIMARY KEY,
 
-    owner_user_id INT NOT NULL,       
-    verified_by_admin_id INT NULL,    
+    owner_user_id INT NOT NULL,
+    verified_by_admin_id INT NULL,
 
     name VARCHAR(150) NOT NULL UNIQUE,
     address VARCHAR(255),
-    location VARCHAR(150) NOT NULL,    
+    location VARCHAR(150) NOT NULL,
     phone VARCHAR(20),
     email VARCHAR(150) NOT NULL UNIQUE,
-    opening_hours VARCHAR(100),
+
+    consultation_price DECIMAL(10,2) NULL,   -- 👈 NEW
+    work_from TIME NULL,             -- 👈 NEW
+    work_to TIME NULL,               -- 👈 NEW
 
     status VARCHAR(20) NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'approved', 'rejected')),
@@ -61,10 +68,16 @@ GO
 CREATE TABLE dbo.Doctors (
     doctor_id INT IDENTITY(1,1) PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
+
     full_name VARCHAR(150) NOT NULL,
     phone VARCHAR(20),
     license_number VARCHAR(50) NOT NULL UNIQUE,
     gender VARCHAR(10),
+
+    consultation_price DECIMAL(10,2) NULL,   -- 👈 NEW
+    work_from TIME NULL,             -- 👈 NEW
+    work_to TIME NULL,               -- 👈 NEW
+
     is_verified BIT NOT NULL DEFAULT 0,
     years_of_experience TINYINT,
     bio VARCHAR(500),
@@ -82,6 +95,7 @@ GO
 CREATE TABLE dbo.Patients (
     patient_id INT IDENTITY(1,1) PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
+
     full_name VARCHAR(150) NOT NULL,
     date_of_birth DATE,
     gender VARCHAR(10),
@@ -102,6 +116,7 @@ CREATE TABLE dbo.Staff (
     staff_id INT IDENTITY(1,1) PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
     clinic_id INT NOT NULL,
+
     full_name VARCHAR(150) NOT NULL,
     role_title VARCHAR(100),
 
@@ -119,4 +134,46 @@ GO
 
 CREATE INDEX IX_Staff_UserId ON dbo.Staff(user_id);
 CREATE INDEX IX_Staff_ClinicId ON dbo.Staff(clinic_id);
+GO
+
+CREATE TABLE dbo.Reviews (
+    review_id INT IDENTITY(1,1) PRIMARY KEY,
+
+    patient_user_id INT NOT NULL,
+    doctor_id INT NULL,
+    clinic_id INT NULL,
+
+    rating TINYINT NOT NULL
+        CHECK (rating BETWEEN 1 AND 5),
+
+    comment VARCHAR(1000) NULL,
+    created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+
+    CONSTRAINT FK_Reviews_Patient
+        FOREIGN KEY (patient_user_id)
+        REFERENCES dbo.Users(user_id)
+        ON DELETE NO ACTION,
+
+    CONSTRAINT FK_Reviews_Doctor
+        FOREIGN KEY (doctor_id)
+        REFERENCES dbo.Doctors(doctor_id)
+        ON DELETE NO ACTION,
+
+    CONSTRAINT FK_Reviews_Clinic
+        FOREIGN KEY (clinic_id)
+        REFERENCES dbo.Clinics(clinic_id)
+        ON DELETE NO ACTION,
+
+    CONSTRAINT CK_Reviews_Target
+        CHECK (
+            (doctor_id IS NOT NULL AND clinic_id IS NULL)
+            OR
+            (doctor_id IS NULL AND clinic_id IS NOT NULL)
+        )
+);
+GO
+  
+
+ALTER TABLE dbo.Staff
+ADD is_verified BIT NOT NULL DEFAULT 0;
 GO

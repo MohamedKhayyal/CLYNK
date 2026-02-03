@@ -11,4 +11,5 @@ const { isVerifiedDoctor } = require("../middlewares/isVerifiedDoctor");
 
 router.post("/", protect, restrictTo("doctor"), isVerifiedDoctor, createClinic);
 router.get("/", getPublicClinics);
+
 module.exports = router;

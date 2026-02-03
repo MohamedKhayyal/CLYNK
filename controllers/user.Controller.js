@@ -5,81 +5,91 @@ const logger = require("../utilts/logger");
 
 exports.getMe = catchAsync(async (req, res, next) => {
   if (!req.user) {
-    logger.warn("getMe failed: req.user is undefined");
     return next(new AppError("Unauthorized", 401));
   }
 
-  const { user_id, user_type } = req.user;
-
-  logger.info(`GetMe request for user ${user_id} (${user_type})`);
+  const { user_id, user_type, email, is_active, photo } = req.user;
 
   let profileQuery;
 
   if (user_type === "patient") {
-    logger.info(`Fetching patient profile for user ${user_id}`);
     profileQuery = sql.query`
-      SELECT full_name, date_of_birth, gender, phone, blood_type
+      SELECT
+        full_name,
+        date_of_birth,
+        gender,
+        phone,
+        blood_type
       FROM dbo.Patients
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "doctor") {
-    logger.info(`Fetching doctor profile for user ${user_id}`);
     profileQuery = sql.query`
-      SELECT full_name, license_number, gender, years_of_experience, bio, is_verified
+      SELECT
+        full_name,
+        gender,
+        years_of_experience,
+        bio,
+        consultation_price,
+        work_from,
+        work_to
       FROM dbo.Doctors
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "staff") {
-    logger.info(`Fetching staff profile for user ${user_id}`);
     profileQuery = sql.query`
-      SELECT full_name, clinic_id, role_title
+      SELECT
+        full_name,
+        clinic_id,
+        role_title,
+        is_verified
       FROM dbo.Staff
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "admin") {
-    logger.info(`Fetching admin profile for user ${user_id}`);
     profileQuery = sql.query`
-      SELECT position_title
+      SELECT
+        position_title
       FROM dbo.Admins
       WHERE user_id = ${user_id};
     `;
   } else {
-    logger.error(`Invalid user_type detected: ${user_type}`);
     return next(new AppError("Invalid user role", 400));
   }
 
   const profileResult = await profileQuery;
-
-  if (!profileResult.recordset.length) {
-    logger.warn(`Profile not found for user ${user_id} (${user_type})`);
-  }
-
   const profile = profileResult.recordset[0] || null;
-
-  logger.info(`GetMe success for user ${user_id}`);
 
   res.status(200).json({
     status: "success",
     user: {
-      user_id: req.user.user_id,
-      email: req.user.email,
-      role: req.user.user_type,
-      is_active: req.user.is_active,
-      created_at: req.user.created_at,
+      user_id,
+      email,
+      role: user_type,
+      is_active,
+      photo: photo || null,
       profile,
     },
   });
 });
 
 exports.updateMe = catchAsync(async (req, res, next) => {
-  const { user_id, user_type } = req.user;
+  const { user_id, user_type, photo: currentPhoto } = req.user;
   const data = req.body;
 
   if (!data || Object.keys(data).length === 0) {
     return next(new AppError("No data provided to update", 400));
   }
 
-  logger.info(`UpdateMe attempt for user ${user_id} (${user_type})`);
+  logger.info(`Update profile for user ${user_id} (${user_type})`);
+
+  if (data.photo) {
+    await sql.query`
+      UPDATE dbo.Users
+      SET photo = ${data.photo}
+      WHERE user_id = ${user_id};
+    `;
+  }
 
   let updateQuery;
   let selectQuery;
@@ -99,12 +109,25 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     `;
 
     selectQuery = sql.query`
-      SELECT full_name, date_of_birth, gender, phone, blood_type
+      SELECT
+        full_name,
+        date_of_birth,
+        gender,
+        phone,
+        blood_type
       FROM dbo.Patients
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "doctor") {
-    const { full_name, gender, years_of_experience, bio } = data;
+    const {
+      full_name,
+      gender,
+      years_of_experience,
+      bio,
+      consultation_price,
+      work_from,
+      work_to,
+    } = data;
 
     updateQuery = sql.query`
       UPDATE dbo.Doctors
@@ -112,12 +135,22 @@ exports.updateMe = catchAsync(async (req, res, next) => {
         full_name = COALESCE(${full_name}, full_name),
         gender = COALESCE(${gender}, gender),
         years_of_experience = COALESCE(${years_of_experience}, years_of_experience),
-        bio = COALESCE(${bio}, bio)
+        bio = COALESCE(${bio}, bio),
+        consultation_price = COALESCE(${consultation_price}, consultation_price),
+        work_from = COALESCE(${work_from}, work_from),
+        work_to = COALESCE(${work_to}, work_to)
       WHERE user_id = ${user_id};
     `;
 
     selectQuery = sql.query`
-      SELECT full_name, gender, years_of_experience, bio, is_verified
+      SELECT
+        full_name,
+        gender,
+        years_of_experience,
+        bio,
+        consultation_price,
+        work_from,
+        work_to
       FROM dbo.Doctors
       WHERE user_id = ${user_id};
     `;
@@ -133,7 +166,10 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     `;
 
     selectQuery = sql.query`
-      SELECT full_name, clinic_id, role_title
+      SELECT
+        full_name,
+        clinic_id,
+        role_title
       FROM dbo.Staff
       WHERE user_id = ${user_id};
     `;
@@ -156,20 +192,18 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     return next(new AppError("Profile update not allowed", 403));
   }
 
-  const updateResult = await updateQuery;
+  const result = await updateQuery;
 
-  if (updateResult.rowsAffected[0] === 0) {
+  if (result.rowsAffected[0] === 0) {
     return next(new AppError("Profile not found", 404));
   }
 
-  const updatedProfileResult = await selectQuery;
-  const profile = updatedProfileResult.recordset[0];
-
-  logger.info(`UpdateMe success for user ${user_id}`);
+  const updatedProfile = (await selectQuery).recordset[0];
 
   res.status(200).json({
     status: "success",
     message: "Profile updated successfully",
-    profile,
+    photo: data.photo || currentPhoto || null,
+    profile: updatedProfile,
   });
 });

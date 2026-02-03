@@ -12,10 +12,10 @@ const errorHandler = require("./middlewares/error.Handler");
 
 const authRoute = require("./routes/auth.Route");
 const userRoute = require("./routes/user.Routes");
-const adminClinicRoute = require("./routes/admin.Clinic.Routes");
 const clinicRoute = require("./routes/clinic.Routes");
 const staffRoute = require("./routes/staff.Route");
 const doctorRoute = require("./routes/doctor.Route");
+const adminRoute = require("./routes/admin.Route");
 
 const { globalLimiter } = require("./middlewares/rateLimiters");
 
@@ -38,13 +38,12 @@ app.use("/img", express.static(path.join(__dirname, "uploads")));
 
 connectDB();
 
-/* 🚏 Routes */
 app.use("/api/auth", authRoute);
 app.use("/api/user", userRoute);
-app.use("/api/admin", adminClinicRoute);
 app.use("/api/clinic", clinicRoute);
 app.use("/api/staff", staffRoute);
 app.use("/api/doctors", doctorRoute);
+app.use("/api/admin", adminRoute);
 
 app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));
