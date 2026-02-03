@@ -158,7 +158,7 @@ exports.login = catchAsync(async (req, res, next) => {
   const { email, password } = req.body;
 
   const result = await sql.query`
-    SELECT user_id, password, user_type, is_active
+    SELECT user_id, email, password, photo, user_type, is_active
     FROM dbo.Users
     WHERE email = ${email} AND is_active = 1;
   `;
@@ -175,18 +175,62 @@ exports.login = catchAsync(async (req, res, next) => {
 
   let profile = null;
 
-  if (user.user_type === "staff") {
+  /* ================= LOAD PROFILE ================= */
+
+  if (user.user_type === "patient") {
     const r = await sql.query`
-      SELECT full_name, clinic_id, role_title, is_verified
+      SELECT
+        full_name,
+        date_of_birth,
+        gender,
+        phone,
+        blood_type
+      FROM dbo.Patients
+      WHERE user_id = ${user.user_id};
+    `;
+    profile = r.recordset[0] || null;
+  }
+
+  else if (user.user_type === "doctor") {
+    const r = await sql.query`
+      SELECT
+        full_name,
+        gender,
+        years_of_experience,
+        bio,
+        consultation_price,
+        work_from,
+        work_to,
+        is_verified
+      FROM dbo.Doctors
+      WHERE user_id = ${user.user_id};
+    `;
+    profile = r.recordset[0] || null;
+  }
+
+  else if (user.user_type === "staff") {
+    const r = await sql.query`
+      SELECT
+        full_name,
+        clinic_id,
+        role_title,
+        is_verified
       FROM dbo.Staff
       WHERE user_id = ${user.user_id};
     `;
-    profile = r.recordset[0];
-
-    // if (profile && !profile.is_verified) {
-    //   return next(new AppError("Your account is pending clinic approval", 403));
-    // }
+    profile = r.recordset[0] || null;
   }
+
+  else if (user.user_type === "admin") {
+    const r = await sql.query`
+      SELECT position_title
+      FROM dbo.Admins
+      WHERE user_id = ${user.user_id};
+    `;
+    profile = r.recordset[0] || null;
+  }
+
+  /* ================= TOKEN ================= */
 
   const token = signToken({
     user_id: user.user_id,
@@ -199,7 +243,8 @@ exports.login = catchAsync(async (req, res, next) => {
     status: "success",
     user: {
       user_id: user.user_id,
-      email,
+      email: user.email,
+      photo: user.photo,
       role: user.user_type,
       profile,
     },

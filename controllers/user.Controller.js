@@ -8,48 +8,40 @@ exports.getMe = catchAsync(async (req, res, next) => {
     return next(new AppError("Unauthorized", 401));
   }
 
-  const { user_id, user_type, email, is_active, photo } = req.user;
+  const { user_id } = req.user;
+
+  const userResult = await sql.query`
+    SELECT email, user_type, is_active, photo
+    FROM dbo.Users
+    WHERE user_id = ${user_id};
+  `;
+
+  const { email, user_type, is_active, photo } = userResult.recordset[0];
 
   let profileQuery;
 
   if (user_type === "patient") {
     profileQuery = sql.query`
-      SELECT
-        full_name,
-        date_of_birth,
-        gender,
-        phone,
-        blood_type
+      SELECT full_name, date_of_birth, gender, phone, blood_type
       FROM dbo.Patients
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "doctor") {
     profileQuery = sql.query`
-      SELECT
-        full_name,
-        gender,
-        years_of_experience,
-        bio,
-        consultation_price,
-        work_from,
-        work_to
+      SELECT full_name, gender, years_of_experience, bio,
+             consultation_price, work_from, work_to
       FROM dbo.Doctors
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "staff") {
     profileQuery = sql.query`
-      SELECT
-        full_name,
-        clinic_id,
-        role_title,
-        is_verified
+      SELECT full_name, clinic_id, role_title, is_verified
       FROM dbo.Staff
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "admin") {
     profileQuery = sql.query`
-      SELECT
-        position_title
+      SELECT position_title
       FROM dbo.Admins
       WHERE user_id = ${user_id};
     `;
@@ -57,8 +49,7 @@ exports.getMe = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid user role", 400));
   }
 
-  const profileResult = await profileQuery;
-  const profile = profileResult.recordset[0] || null;
+  const profile = (await profileQuery).recordset[0] || null;
 
   res.status(200).json({
     status: "success",
@@ -67,21 +58,31 @@ exports.getMe = catchAsync(async (req, res, next) => {
       email,
       role: user_type,
       is_active,
-      photo: photo || null,
+      photo,
       profile,
     },
   });
 });
 
 exports.updateMe = catchAsync(async (req, res, next) => {
-  const { user_id, user_type, photo: currentPhoto } = req.user;
-  const data = req.body;
+  const { user_id, user_type } = req.user;
 
-  if (!data || Object.keys(data).length === 0) {
+  const data = { ...req.body };
+
+  if (req.body.photo) {
+    data.photo = req.body.photo;
+  }
+
+  const hasBodyData = data && Object.keys(data).length > 0;
+  const hasFile = !!req.file;
+
+  if (!hasBodyData && !hasFile) {
     return next(new AppError("No data provided to update", 400));
   }
 
   logger.info(`Update profile for user ${user_id} (${user_type})`);
+
+  let photo = null;
 
   if (data.photo) {
     await sql.query`
@@ -89,6 +90,12 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       SET photo = ${data.photo}
       WHERE user_id = ${user_id};
     `;
+    photo = data.photo;
+  } else {
+    const current = await sql.query`
+      SELECT photo FROM dbo.Users WHERE user_id = ${user_id};
+    `;
+    photo = current.recordset[0]?.photo || null;
   }
 
   let updateQuery;
@@ -109,16 +116,13 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     `;
 
     selectQuery = sql.query`
-      SELECT
-        full_name,
-        date_of_birth,
-        gender,
-        phone,
-        blood_type
+      SELECT full_name, date_of_birth, gender, phone, blood_type
       FROM dbo.Patients
       WHERE user_id = ${user_id};
     `;
-  } else if (user_type === "doctor") {
+  }
+
+  else if (user_type === "doctor") {
     const {
       full_name,
       gender,
@@ -154,7 +158,9 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       FROM dbo.Doctors
       WHERE user_id = ${user_id};
     `;
-  } else if (user_type === "staff") {
+  }
+
+  else if (user_type === "staff") {
     const { full_name, role_title } = data;
 
     updateQuery = sql.query`
@@ -166,14 +172,13 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     `;
 
     selectQuery = sql.query`
-      SELECT
-        full_name,
-        clinic_id,
-        role_title
+      SELECT full_name, clinic_id, role_title
       FROM dbo.Staff
       WHERE user_id = ${user_id};
     `;
-  } else if (user_type === "admin") {
+  }
+
+  else if (user_type === "admin") {
     const { position_title } = data;
 
     updateQuery = sql.query`
@@ -188,7 +193,9 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       FROM dbo.Admins
       WHERE user_id = ${user_id};
     `;
-  } else {
+  }
+
+  else {
     return next(new AppError("Profile update not allowed", 403));
   }
 
@@ -198,12 +205,13 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     return next(new AppError("Profile not found", 404));
   }
 
-  const updatedProfile = (await selectQuery).recordset[0];
+  const profile = (await selectQuery).recordset[0];
 
   res.status(200).json({
     status: "success",
     message: "Profile updated successfully",
-    photo: data.photo || currentPhoto || null,
-    profile: updatedProfile,
+    photo,
+    profile,
   });
 });
+
