@@ -4,23 +4,37 @@ const { sql } = require("../config/db.Config");
 const logger = require("../utilts/logger");
 const AppError = require("../utilts/app.Error");
 const catchAsync = require("../utilts/catch.Async");
+const { createNotification } = require("../utilts/notification");
 
 const ALLOWED_SIGNUP_ROLES = ["patient", "doctor", "staff"];
-
 const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
 
-const signToken = (payload) =>
+const signAccessToken = (payload) =>
   jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN,
   });
 
-const sendTokenCookie = (res, token) => {
+const signRefreshToken = (payload) =>
+  jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN,
+  });
+
+const sendAccessCookie = (res, token) => {
   res.cookie("jwt", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     maxAge:
       Number(process.env.JWT_COOKIE_EXPIRES_IN || 7) * 24 * 60 * 60 * 1000,
+  });
+};
+
+const sendRefreshCookie = (res, refreshToken) => {
+  res.cookie("refresh_token", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
   });
 };
 
@@ -35,7 +49,13 @@ exports.signup = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid email format", 400));
   }
 
-  const role = ALLOWED_SIGNUP_ROLES.includes(user_type) ? user_type : "patient";
+  if (!ALLOWED_SIGNUP_ROLES.includes(user_type)) {
+    return next(new AppError("Invalid user type", 400));
+  }
+
+  if (!profile || typeof profile !== "object") {
+    return next(new AppError("Profile data is required", 400));
+  }
 
   const exists = await sql.query`
     SELECT user_id FROM dbo.Users WHERE email = ${email};
@@ -44,7 +64,11 @@ exports.signup = catchAsync(async (req, res, next) => {
     return next(new AppError("Email already exists", 409));
   }
 
-  const hashedPassword = await bcrypt.hash(password, 12);
+  const hashedPassword = await bcrypt.hash(
+    password,
+    Number(process.env.BCRYPT_SALT_ROUNDS) || 12,
+  );
+
   const transaction = new sql.Transaction();
   await transaction.begin();
 
@@ -52,12 +76,12 @@ exports.signup = catchAsync(async (req, res, next) => {
     const userResult = await transaction.request().query`
       INSERT INTO dbo.Users (email, password, user_type)
       OUTPUT INSERTED.user_id, INSERTED.user_type
-      VALUES (${email}, ${hashedPassword}, ${role});
+      VALUES (${email}, ${hashedPassword}, ${user_type});
     `;
 
     const user = userResult.recordset[0];
 
-    if (role === "patient") {
+    if (user_type === "patient") {
       const { full_name, date_of_birth, gender, phone, blood_type } = profile;
 
       if (!full_name) {
@@ -75,9 +99,7 @@ exports.signup = catchAsync(async (req, res, next) => {
            ${phone || null},
            ${blood_type || null});
       `;
-    }
-
-    if (role === "doctor") {
+    } else if (user_type === "doctor") {
       const { full_name, license_number, gender, years_of_experience, bio } =
         profile;
 
@@ -99,46 +121,68 @@ exports.signup = catchAsync(async (req, res, next) => {
            ${years_of_experience || null},
            ${bio || null});
       `;
-    }
+      const adminsResult = await sql.query`
+         SELECT user_id FROM dbo.Admins;
+       `;
 
-    if (role === "staff") {
+      for (const admin of adminsResult.recordset) {
+        await createNotification({
+          user_id: admin.user_id,
+          title: `New Doctor Pending Approval: ${full_name}`,
+          message: `A new doctor "${full_name}" has been created and is waiting for approval.`,
+        });
+      }
+    } else if (user_type === "staff") {
       const { full_name, clinic_id, role_title } = profile;
 
       if (!full_name || !clinic_id) {
         throw new AppError("Staff full_name and clinic_id are required", 400);
       }
 
-      const clinicCheck = await transaction.request().query`
-        SELECT clinic_id
-        FROM dbo.Clinics
-        WHERE clinic_id = ${clinic_id}
-          AND status = 'approved';
-      `;
+      const clinicResult = await transaction.request().query`
+    SELECT clinic_id, owner_user_id
+    FROM dbo.Clinics
+    WHERE clinic_id = ${clinic_id}
+      AND status = 'approved';
+  `;
 
-      if (!clinicCheck.recordset.length) {
+      if (!clinicResult.recordset.length) {
         throw new AppError("Clinic not found or not approved", 400);
       }
 
+      const clinic = clinicResult.recordset[0];
+
       await transaction.request().query`
-        INSERT INTO dbo.Staff
-          (user_id, clinic_id, full_name, role_title, is_verified)
-        VALUES
-          (${user.user_id},
-           ${clinic_id},
-           ${full_name},
-           ${role_title || null},
-           0);
-      `;
+    INSERT INTO dbo.Staff
+      (user_id, clinic_id, full_name, role_title, is_verified)
+    VALUES
+      (${user.user_id},
+       ${clinic_id},
+       ${full_name},
+       ${role_title || null},
+       0);
+  `;
+
+      await createNotification({
+        user_id: clinic.owner_user_id,
+        title: "New Staff Request 👤",
+        message: `A new staff member (${full_name}) is waiting for verification.`,
+      });
     }
 
     await transaction.commit();
 
-    const token = signToken({
+    const accessToken = signAccessToken({
       user_id: user.user_id,
       role: user.user_type,
     });
 
-    sendTokenCookie(res, token);
+    const refreshToken = signRefreshToken({
+      user_id: user.user_id,
+    });
+
+    sendAccessCookie(res, accessToken);
+    sendRefreshCookie(res, refreshToken);
 
     res.status(201).json({
       status: "success",
@@ -146,7 +190,9 @@ exports.signup = catchAsync(async (req, res, next) => {
         user_id: user.user_id,
         email,
         role: user.user_type,
+        photo: null,
       },
+      accessToken,
     });
   } catch (err) {
     await transaction.rollback();
@@ -156,6 +202,10 @@ exports.signup = catchAsync(async (req, res, next) => {
 
 exports.login = catchAsync(async (req, res, next) => {
   const { email, password } = req.body;
+
+  if (!email || !password) {
+    return next(new AppError("Email and password are required", 400));
+  }
 
   const result = await sql.query`
     SELECT user_id, email, password, photo, user_type, is_active
@@ -175,23 +225,14 @@ exports.login = catchAsync(async (req, res, next) => {
 
   let profile = null;
 
-  /* ================= LOAD PROFILE ================= */
-
   if (user.user_type === "patient") {
     const r = await sql.query`
-      SELECT
-        full_name,
-        date_of_birth,
-        gender,
-        phone,
-        blood_type
+      SELECT full_name, date_of_birth, gender, phone, blood_type
       FROM dbo.Patients
       WHERE user_id = ${user.user_id};
     `;
     profile = r.recordset[0] || null;
-  }
-
-  else if (user.user_type === "doctor") {
+  } else if (user.user_type === "doctor") {
     const r = await sql.query`
       SELECT
         full_name,
@@ -206,9 +247,7 @@ exports.login = catchAsync(async (req, res, next) => {
       WHERE user_id = ${user.user_id};
     `;
     profile = r.recordset[0] || null;
-  }
-
-  else if (user.user_type === "staff") {
+  } else if (user.user_type === "staff") {
     const r = await sql.query`
       SELECT
         full_name,
@@ -219,9 +258,7 @@ exports.login = catchAsync(async (req, res, next) => {
       WHERE user_id = ${user.user_id};
     `;
     profile = r.recordset[0] || null;
-  }
-
-  else if (user.user_type === "admin") {
+  } else if (user.user_type === "admin") {
     const r = await sql.query`
       SELECT position_title
       FROM dbo.Admins
@@ -230,14 +267,17 @@ exports.login = catchAsync(async (req, res, next) => {
     profile = r.recordset[0] || null;
   }
 
-  /* ================= TOKEN ================= */
-
-  const token = signToken({
+  const accessToken = signAccessToken({
     user_id: user.user_id,
     role: user.user_type,
   });
 
-  sendTokenCookie(res, token);
+  const refreshToken = signRefreshToken({
+    user_id: user.user_id,
+  });
+
+  sendAccessCookie(res, accessToken);
+  sendRefreshCookie(res, refreshToken);
 
   res.status(200).json({
     status: "success",
@@ -248,12 +288,57 @@ exports.login = catchAsync(async (req, res, next) => {
       role: user.user_type,
       profile,
     },
-    token,
+    accessToken,
+  });
+});
+
+exports.refreshToken = catchAsync(async (req, res, next) => {
+  const refreshToken = req.cookies.refresh_token;
+
+  if (!refreshToken) {
+    return next(new AppError("Refresh token missing", 401));
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+  } catch (err) {
+    return next(new AppError("Invalid refresh token", 401));
+  }
+
+  const userResult = await sql.query`
+    SELECT user_id, user_type, is_active
+    FROM dbo.Users
+    WHERE user_id = ${decoded.user_id} AND is_active = 1;
+  `;
+
+  const user = userResult.recordset[0];
+  if (!user) {
+    return next(new AppError("User not found", 401));
+  }
+
+  const newAccessToken = signAccessToken({
+    user_id: user.user_id,
+    role: user.user_type,
+  });
+
+  sendAccessCookie(res, newAccessToken);
+
+  res.status(200).json({
+    status: "success",
+    accessToken: newAccessToken,
   });
 });
 
 exports.logout = (req, res) => {
   res.cookie("jwt", "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    expires: new Date(0),
+  });
+
+  res.cookie("refresh_token", "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",

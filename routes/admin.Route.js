@@ -10,12 +10,11 @@ router.post("/create-admin", adminController.createAdmin);
 
 router.get("/clinics", adminController.getClinics);
 router.patch("/clinics/:id/approve", adminController.approveClinic);
+router.patch("/clinics/:id/reject", adminController.rejectClinic);
 
-router.patch(
-  "/:id/verify",
-  auth.protect,
-  auth.restrictTo("admin"),
-  adminController.verifyDoctor,
-);
+router.patch("/:id/verify", adminController.verifyDoctor);
+router.patch("/:id/unverify", adminController.unverifyDoctor);
+
+router.get("/doctors", adminController.getAllDoctors);
 
 module.exports = router;

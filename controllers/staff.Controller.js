@@ -3,6 +3,7 @@ const { sql } = require("../config/db.Config");
 const catchAsync = require("../utilts/catch.Async");
 const AppError = require("../utilts/app.Error");
 const logger = require("../utilts/logger");
+const { createNotification } = require("../utilts/notification");
 
 const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
 
@@ -10,11 +11,9 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
   const { email, password, full_name, role_title } = req.body;
   const { clinic_id } = req.clinic;
 
-  logger.info(`Create staff for clinic ${clinic_id}`);
-
   if (!email || !password || !full_name) {
     return next(
-      new AppError("Email, password and full_name are required", 400)
+      new AppError("Email, password and full_name are required", 400),
     );
   }
 
@@ -35,7 +34,6 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
   await transaction.begin();
 
   try {
-    /* Users */
     const userResult = await transaction.request().query`
       INSERT INTO dbo.Users (email, password, user_type)
       OUTPUT INSERTED.user_id
@@ -44,17 +42,20 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
 
     const userId = userResult.recordset[0].user_id;
 
-    /* Staff */
     await transaction.request().query`
       INSERT INTO dbo.Staff
         (user_id, clinic_id, full_name, role_title, is_verified)
       VALUES
-        (${userId}, ${clinic_id}, ${full_name}, ${role_title}, 0);
+        (${userId}, ${clinic_id}, ${full_name}, ${role_title || null}, 0);
     `;
 
     await transaction.commit();
 
-    logger.info(`Staff created (user ${userId}) for clinic ${clinic_id}`);
+    await createNotification({
+      user_id: userId,
+      title: "Staff Account Created",
+      message: "Your staff account has been created",
+    });
 
     res.status(201).json({
       status: "success",
@@ -64,12 +65,11 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
         full_name,
         role_title,
         clinic_id,
-        is_verified: false,
+        is_verified: true,
       },
     });
   } catch (err) {
     await transaction.rollback();
-    logger.error(`Create staff failed: ${err.message}`);
     next(err);
   }
 });
@@ -109,7 +109,7 @@ exports.verifyStaff = catchAsync(async (req, res, next) => {
   }
 
   const staffResult = await sql.query`
-    SELECT staff_id, is_verified
+    SELECT staff_id, user_id, is_verified
     FROM dbo.Staff
     WHERE staff_id = ${staffId}
       AND clinic_id = ${clinic_id};
@@ -131,9 +131,41 @@ exports.verifyStaff = catchAsync(async (req, res, next) => {
     WHERE staff_id = ${staffId};
   `;
 
+  await createNotification({
+    user_id: staff.user_id,
+    title: "Staff Account Verified",
+    message:
+      "Your staff account has been verified. You can now access the clinic system.",
+  });
+
   res.status(200).json({
     status: "success",
     message: "Staff verified successfully",
     staff_id: staffId,
+  });
+});
+
+exports.getPendingStaff = catchAsync(async (req, res, next) => {
+  const { clinic_id } = req.clinic;
+
+  const result = await sql.query`
+    SELECT
+      s.staff_id,
+      s.full_name,
+      s.role_title,
+      s.is_verified,
+      u.email
+    FROM dbo.Staff s
+    INNER JOIN dbo.Users u
+      ON s.user_id = u.user_id
+    WHERE s.clinic_id = ${clinic_id}
+      AND s.is_verified = 0
+    ORDER BY u.created_at DESC;
+  `;
+
+  res.status(200).json({
+    status: "success",
+    results: result.recordset.length,
+    staff: result.recordset,
   });
 });

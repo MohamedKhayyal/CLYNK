@@ -172,8 +172,28 @@ CREATE TABLE dbo.Reviews (
         )
 );
 GO
-  
-
+ 
 ALTER TABLE dbo.Staff
 ADD is_verified BIT NOT NULL DEFAULT 0;
+GO
+
+CREATE TABLE dbo.Notifications (
+    notification_id INT IDENTITY(1,1) PRIMARY KEY,
+    user_id INT NOT NULL,
+
+    title VARCHAR(150) NOT NULL,
+    message VARCHAR(500) NOT NULL,
+
+    is_read BIT NOT NULL DEFAULT 0,
+    created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+
+    CONSTRAINT FK_Notifications_Users
+        FOREIGN KEY (user_id)
+        REFERENCES dbo.Users(user_id)
+        ON DELETE CASCADE
+);
+GO
+
+CREATE INDEX IX_Notifications_UserId
+ON dbo.Notifications(user_id);
 GO
