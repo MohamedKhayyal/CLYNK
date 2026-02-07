@@ -329,6 +329,7 @@ exports.getAllDoctors = catchAsync(async (req, res, next) => {
     SELECT
       d.doctor_id,
       d.user_id,
+      u.email,
       d.full_name,
       d.gender,
       d.years_of_experience,
@@ -336,13 +337,13 @@ exports.getAllDoctors = catchAsync(async (req, res, next) => {
       d.consultation_price,
       d.work_from,
       d.work_to,
+      d.work_days,
+      d.specialist,
+      d.location,
       d.is_verified,
-
-      u.email,
       u.photo,
       u.is_active,
       u.created_at
-
     FROM dbo.Doctors d
     INNER JOIN dbo.Users u
       ON d.user_id = u.user_id

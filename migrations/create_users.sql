@@ -2,8 +2,7 @@ CREATE TABLE dbo.Users (
     user_id INT IDENTITY(1,1) PRIMARY KEY,
     email VARCHAR(150) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
-
-    photo VARCHAR(500) NULL,   -- 👈 NEW (Cloudinary URL)
+    photo VARCHAR(500) NULL,
 
     user_type VARCHAR(20) NOT NULL
         CHECK (user_type IN ('patient', 'doctor', 'staff', 'admin')),
@@ -19,7 +18,7 @@ GO
 CREATE TABLE dbo.Admins (
     admin_id INT IDENTITY(1,1) PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
-    position_title VARCHAR(100),
+    full_name NVARCHAR(150) NOT NULL,
 
     CONSTRAINT FK_Admins_Users
         FOREIGN KEY (user_id)
@@ -30,7 +29,6 @@ GO
 
 CREATE TABLE dbo.Clinics (
     clinic_id INT IDENTITY(1,1) PRIMARY KEY,
-
     owner_user_id INT NOT NULL,
     verified_by_admin_id INT NULL,
 
@@ -40,9 +38,9 @@ CREATE TABLE dbo.Clinics (
     phone VARCHAR(20),
     email VARCHAR(150) NOT NULL UNIQUE,
 
-    consultation_price DECIMAL(10,2) NULL,   -- 👈 NEW
-    work_from TIME NULL,             -- 👈 NEW
-    work_to TIME NULL,               -- 👈 NEW
+    consultation_price DECIMAL(10,2) NULL,
+    work_from TIME NULL,
+    work_to TIME NULL,
 
     status VARCHAR(20) NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'approved', 'rejected')),
@@ -60,43 +58,55 @@ CREATE TABLE dbo.Clinics (
 );
 GO
 
-CREATE INDEX IX_Clinics_OwnerUser ON dbo.Clinics(owner_user_id);
-CREATE INDEX IX_Clinics_Status ON dbo.Clinics(status);
-CREATE INDEX IX_Clinics_Location ON dbo.Clinics(location);
-GO
-
 CREATE TABLE dbo.Doctors (
     doctor_id INT IDENTITY(1,1) PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
 
-    full_name VARCHAR(150) NOT NULL,
+    full_name NVARCHAR(150) NOT NULL,
     phone VARCHAR(20),
     license_number VARCHAR(50) NOT NULL UNIQUE,
     gender VARCHAR(10),
 
-    consultation_price DECIMAL(10,2) NULL,   -- 👈 NEW
-    work_from TIME NULL,             -- 👈 NEW
-    work_to TIME NULL,               -- 👈 NEW
+    specialist NVARCHAR(100) NOT NULL,
+    work_days NVARCHAR(100) NOT NULL,
+    location NVARCHAR(150) NULL,
+
+    consultation_price DECIMAL(10,2) NULL,
+    work_from TIME NULL,
+    work_to TIME NULL,
 
     is_verified BIT NOT NULL DEFAULT 0,
     years_of_experience TINYINT,
-    bio VARCHAR(500),
+    bio NVARCHAR(500),
 
     CONSTRAINT FK_Doctors_Users
         FOREIGN KEY (user_id)
         REFERENCES dbo.Users(user_id)
-        ON DELETE CASCADE
-);
-GO
+        ON DELETE CASCADE,
 
-CREATE INDEX IX_Doctors_UserId ON dbo.Doctors(user_id);
+    CONSTRAINT CK_Doctors_Specialist
+        CHECK (specialist IN (
+            N'مخ واعصاب',
+            N'عظام',
+            N'الأورام',
+            N'طب الأذن والأنف والحنجرة',
+            N'طب العيون',
+            N'قلب و اوعية دموية',
+            N'صدر و جهاز تنفسي',
+            N'كلى',
+            N'اسنان',
+            N'اطفال و حديثي الولادة',
+            N'جلدية',
+            N'نسا و توليد'
+        ))
+);
 GO
 
 CREATE TABLE dbo.Patients (
     patient_id INT IDENTITY(1,1) PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
 
-    full_name VARCHAR(150) NOT NULL,
+    full_name NVARCHAR(150) NOT NULL,
     date_of_birth DATE,
     gender VARCHAR(10),
     phone VARCHAR(20),
@@ -109,16 +119,17 @@ CREATE TABLE dbo.Patients (
 );
 GO
 
-CREATE INDEX IX_Patients_UserId ON dbo.Patients(user_id);
-GO
-
 CREATE TABLE dbo.Staff (
     staff_id INT IDENTITY(1,1) PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
     clinic_id INT NOT NULL,
 
-    full_name VARCHAR(150) NOT NULL,
-    role_title VARCHAR(100),
+    full_name NVARCHAR(150) NOT NULL,
+    role_title VARCHAR(20) NOT NULL
+        CHECK (role_title IN ('doctor', 'nurse', 'receptionist')),
+
+    specialist NVARCHAR(100) NULL,
+    is_verified BIT NOT NULL DEFAULT 0,
 
     CONSTRAINT FK_Staff_Users
         FOREIGN KEY (user_id)
@@ -128,12 +139,28 @@ CREATE TABLE dbo.Staff (
     CONSTRAINT FK_Staff_Clinics
         FOREIGN KEY (clinic_id)
         REFERENCES dbo.Clinics(clinic_id)
-        ON DELETE CASCADE
-);
-GO
+        ON DELETE CASCADE,
 
-CREATE INDEX IX_Staff_UserId ON dbo.Staff(user_id);
-CREATE INDEX IX_Staff_ClinicId ON dbo.Staff(clinic_id);
+    CONSTRAINT CK_Staff_Doctor_Specialist
+        CHECK (
+            (role_title = 'doctor' AND specialist IN (
+                N'مخ واعصاب',
+                N'عظام',
+                N'الأورام',
+                N'طب الأذن والأنف والحنجرة',
+                N'طب العيون',
+                N'قلب و اوعية دموية',
+                N'صدر و جهاز تنفسي',
+                N'كلى',
+                N'اسنان',
+                N'اطفال و حديثي الولادة',
+                N'جلدية',
+                N'نسا و توليد'
+            ))
+            OR
+            (role_title <> 'doctor' AND specialist IS NULL)
+        )
+);
 GO
 
 CREATE TABLE dbo.Reviews (
@@ -143,26 +170,21 @@ CREATE TABLE dbo.Reviews (
     doctor_id INT NULL,
     clinic_id INT NULL,
 
-    rating TINYINT NOT NULL
-        CHECK (rating BETWEEN 1 AND 5),
-
-    comment VARCHAR(1000) NULL,
+    rating TINYINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    comment NVARCHAR(1000) NULL,
     created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
 
     CONSTRAINT FK_Reviews_Patient
         FOREIGN KEY (patient_user_id)
-        REFERENCES dbo.Users(user_id)
-        ON DELETE NO ACTION,
+        REFERENCES dbo.Users(user_id),
 
     CONSTRAINT FK_Reviews_Doctor
         FOREIGN KEY (doctor_id)
-        REFERENCES dbo.Doctors(doctor_id)
-        ON DELETE NO ACTION,
+        REFERENCES dbo.Doctors(doctor_id),
 
     CONSTRAINT FK_Reviews_Clinic
         FOREIGN KEY (clinic_id)
-        REFERENCES dbo.Clinics(clinic_id)
-        ON DELETE NO ACTION,
+        REFERENCES dbo.Clinics(clinic_id),
 
     CONSTRAINT CK_Reviews_Target
         CHECK (
@@ -172,17 +194,13 @@ CREATE TABLE dbo.Reviews (
         )
 );
 GO
- 
-ALTER TABLE dbo.Staff
-ADD is_verified BIT NOT NULL DEFAULT 0;
-GO
 
 CREATE TABLE dbo.Notifications (
     notification_id INT IDENTITY(1,1) PRIMARY KEY,
     user_id INT NOT NULL,
 
-    title VARCHAR(150) NOT NULL,
-    message VARCHAR(500) NOT NULL,
+    title NVARCHAR(150) NOT NULL,
+    message NVARCHAR(500) NOT NULL,
 
     is_read BIT NOT NULL DEFAULT 0,
     created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
@@ -192,8 +210,4 @@ CREATE TABLE dbo.Notifications (
         REFERENCES dbo.Users(user_id)
         ON DELETE CASCADE
 );
-GO
-
-CREATE INDEX IX_Notifications_UserId
-ON dbo.Notifications(user_id);
 GO

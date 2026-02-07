@@ -1,13 +1,9 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { sql } = require("../config/db.Config");
-const logger = require("../utilts/logger");
 const AppError = require("../utilts/app.Error");
 const catchAsync = require("../utilts/catch.Async");
 const { createNotification } = require("../utilts/notification");
-
-const ALLOWED_SIGNUP_ROLES = ["patient", "doctor", "staff"];
-const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
 
 const signAccessToken = (payload) =>
   jwt.sign(payload, process.env.JWT_SECRET, {
@@ -24,13 +20,12 @@ const sendAccessCookie = (res, token) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-    maxAge:
-      Number(process.env.JWT_COOKIE_EXPIRES_IN || 7) * 24 * 60 * 60 * 1000,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 };
 
-const sendRefreshCookie = (res, refreshToken) => {
-  res.cookie("refresh_token", refreshToken, {
+const sendRefreshCookie = (res, token) => {
+  res.cookie("refresh_token", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
@@ -41,22 +36,6 @@ const sendRefreshCookie = (res, refreshToken) => {
 exports.signup = catchAsync(async (req, res, next) => {
   const { email, password, user_type, profile } = req.body;
 
-  if (!email || !password) {
-    return next(new AppError("Email and password are required", 400));
-  }
-
-  if (!EMAIL_REGEX.test(email)) {
-    return next(new AppError("Invalid email format", 400));
-  }
-
-  if (!ALLOWED_SIGNUP_ROLES.includes(user_type)) {
-    return next(new AppError("Invalid user type", 400));
-  }
-
-  if (!profile || typeof profile !== "object") {
-    return next(new AppError("Profile data is required", 400));
-  }
-
   const exists = await sql.query`
     SELECT user_id FROM dbo.Users WHERE email = ${email};
   `;
@@ -64,10 +43,7 @@ exports.signup = catchAsync(async (req, res, next) => {
     return next(new AppError("Email already exists", 409));
   }
 
-  const hashedPassword = await bcrypt.hash(
-    password,
-    Number(process.env.BCRYPT_SALT_ROUNDS) || 12,
-  );
+  const hashedPassword = await bcrypt.hash(password, 12);
 
   const transaction = new sql.Transaction();
   await transaction.begin();
@@ -84,10 +60,6 @@ exports.signup = catchAsync(async (req, res, next) => {
     if (user_type === "patient") {
       const { full_name, date_of_birth, gender, phone, blood_type } = profile;
 
-      if (!full_name) {
-        throw new AppError("Patient full_name is required", 400);
-      }
-
       await transaction.request().query`
         INSERT INTO dbo.Patients
           (user_id, full_name, date_of_birth, gender, phone, blood_type)
@@ -99,52 +71,58 @@ exports.signup = catchAsync(async (req, res, next) => {
            ${phone || null},
            ${blood_type || null});
       `;
-    } else if (user_type === "doctor") {
-      const { full_name, license_number, gender, years_of_experience, bio } =
-        profile;
+    }
 
-      if (!full_name || !license_number) {
-        throw new AppError(
-          "Doctor full_name and license_number are required",
-          400,
-        );
-      }
+    if (user_type === "doctor") {
+      const {
+        full_name,
+        license_number,
+        gender,
+        years_of_experience,
+        bio,
+        specialist,
+        work_days,
+        location,
+      } = profile;
 
       await transaction.request().query`
         INSERT INTO dbo.Doctors
-          (user_id, full_name, license_number, gender, years_of_experience, bio)
+          (user_id, full_name, license_number, gender,
+           years_of_experience, bio, specialist, work_days, location)
         VALUES
           (${user.user_id},
            ${full_name},
            ${license_number},
            ${gender || null},
            ${years_of_experience || null},
-           ${bio || null});
+           ${bio || null},
+           ${specialist},
+           ${work_days},
+           ${location || null});
       `;
-      const adminsResult = await sql.query`
-         SELECT user_id FROM dbo.Admins;
-       `;
 
-      for (const admin of adminsResult.recordset) {
+      const admins = await transaction.request().query`
+        SELECT user_id FROM dbo.Admins;
+      `;
+
+      for (const admin of admins.recordset) {
         await createNotification({
           user_id: admin.user_id,
-          title: `New Doctor Pending Approval: ${full_name}`,
-          message: `A new doctor "${full_name}" has been created and is waiting for approval.`,
+          title: "New Doctor Pending Approval 👨‍⚕️",
+          message: `Doctor "${full_name}" is waiting for verification.`,
         });
       }
-    } else if (user_type === "staff") {
-      const { full_name, clinic_id, role_title } = profile;
+    }
 
-      if (!full_name || !clinic_id) {
-        throw new AppError("Staff full_name and clinic_id are required", 400);
-      }
+    if (user_type === "staff") {
+      const { full_name, clinic_id, role_title, specialist } = profile;
 
       const clinicResult = await transaction.request().query`
-    SELECT clinic_id, owner_user_id
-    FROM dbo.Clinics
-    WHERE clinic_id = ${clinic_id}
-      AND status = 'approved';
-  `;
+        SELECT clinic_id, owner_user_id
+        FROM dbo.Clinics
+        WHERE clinic_id = ${clinic_id}
+          AND status = 'approved';
+      `;
 
       if (!clinicResult.recordset.length) {
         throw new AppError("Clinic not found or not approved", 400);
@@ -153,20 +131,21 @@ exports.signup = catchAsync(async (req, res, next) => {
       const clinic = clinicResult.recordset[0];
 
       await transaction.request().query`
-    INSERT INTO dbo.Staff
-      (user_id, clinic_id, full_name, role_title, is_verified)
-    VALUES
-      (${user.user_id},
-       ${clinic_id},
-       ${full_name},
-       ${role_title || null},
-       0);
-  `;
+        INSERT INTO dbo.Staff
+          (user_id, clinic_id, full_name, role_title, specialist, is_verified)
+        VALUES
+          (${user.user_id},
+           ${clinic_id},
+           ${full_name},
+           ${role_title},
+           ${role_title === "doctor" ? specialist : null},
+           0);
+      `;
 
       await createNotification({
         user_id: clinic.owner_user_id,
         title: "New Staff Request 👤",
-        message: `A new staff member (${full_name}) is waiting for verification.`,
+        message: `Staff "${full_name}" is waiting for verification.`,
       });
     }
 
@@ -177,9 +156,7 @@ exports.signup = catchAsync(async (req, res, next) => {
       role: user.user_type,
     });
 
-    const refreshToken = signRefreshToken({
-      user_id: user.user_id,
-    });
+    const refreshToken = signRefreshToken({ user_id: user.user_id });
 
     sendAccessCookie(res, accessToken);
     sendRefreshCookie(res, refreshToken);
@@ -190,7 +167,6 @@ exports.signup = catchAsync(async (req, res, next) => {
         user_id: user.user_id,
         email,
         role: user.user_type,
-        photo: null,
       },
       accessToken,
     });
@@ -203,10 +179,6 @@ exports.signup = catchAsync(async (req, res, next) => {
 exports.login = catchAsync(async (req, res, next) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
-    return next(new AppError("Email and password are required", 400));
-  }
-
   const result = await sql.query`
     SELECT user_id, email, password, photo, user_type, is_active
     FROM dbo.Users
@@ -214,57 +186,46 @@ exports.login = catchAsync(async (req, res, next) => {
   `;
 
   const user = result.recordset[0];
-  if (!user) {
-    return next(new AppError("Invalid email or password", 401));
-  }
-
-  const isCorrect = await bcrypt.compare(password, user.password);
-  if (!isCorrect) {
+  if (!user || !(await bcrypt.compare(password, user.password))) {
     return next(new AppError("Invalid email or password", 401));
   }
 
   let profile = null;
 
   if (user.user_type === "patient") {
-    const r = await sql.query`
-      SELECT full_name, date_of_birth, gender, phone, blood_type
-      FROM dbo.Patients
-      WHERE user_id = ${user.user_id};
-    `;
-    profile = r.recordset[0] || null;
-  } else if (user.user_type === "doctor") {
-    const r = await sql.query`
-      SELECT
-        full_name,
-        gender,
-        years_of_experience,
-        bio,
-        consultation_price,
-        work_from,
-        work_to,
-        is_verified
-      FROM dbo.Doctors
-      WHERE user_id = ${user.user_id};
-    `;
-    profile = r.recordset[0] || null;
-  } else if (user.user_type === "staff") {
-    const r = await sql.query`
-      SELECT
-        full_name,
-        clinic_id,
-        role_title,
-        is_verified
-      FROM dbo.Staff
-      WHERE user_id = ${user.user_id};
-    `;
-    profile = r.recordset[0] || null;
-  } else if (user.user_type === "admin") {
-    const r = await sql.query`
-      SELECT position_title
-      FROM dbo.Admins
-      WHERE user_id = ${user.user_id};
-    `;
-    profile = r.recordset[0] || null;
+    profile = (
+      await sql.query`
+        SELECT full_name, date_of_birth, gender, phone, blood_type
+        FROM dbo.Patients WHERE user_id = ${user.user_id};
+      `
+    ).recordset[0];
+  }
+
+  if (user.user_type === "doctor") {
+    profile = (
+      await sql.query`
+        SELECT full_name, gender, specialist, work_days, location,
+               years_of_experience, bio, is_verified
+        FROM dbo.Doctors WHERE user_id = ${user.user_id};
+      `
+    ).recordset[0];
+  }
+
+  if (user.user_type === "staff") {
+    profile = (
+      await sql.query`
+        SELECT full_name, clinic_id, role_title, specialist, is_verified
+        FROM dbo.Staff WHERE user_id = ${user.user_id};
+      `
+    ).recordset[0];
+  }
+  if (user.user_type === "admin") {
+    profile = (
+      await sql.query`
+        SELECT full_name
+        FROM dbo.Admins WHERE user_id = ${user.user_id};
+      `
+    ).recordset[0];
   }
 
   const accessToken = signAccessToken({
@@ -272,9 +233,7 @@ exports.login = catchAsync(async (req, res, next) => {
     role: user.user_type,
   });
 
-  const refreshToken = signRefreshToken({
-    user_id: user.user_id,
-  });
+  const refreshToken = signRefreshToken({ user_id: user.user_id });
 
   sendAccessCookie(res, accessToken);
   sendRefreshCookie(res, refreshToken);
@@ -293,57 +252,34 @@ exports.login = catchAsync(async (req, res, next) => {
 });
 
 exports.refreshToken = catchAsync(async (req, res, next) => {
-  const refreshToken = req.cookies.refresh_token;
+  const token = req.cookies.refresh_token;
+  if (!token) return next(new AppError("Refresh token missing", 401));
 
-  if (!refreshToken) {
-    return next(new AppError("Refresh token missing", 401));
-  }
+  const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
 
-  let decoded;
-  try {
-    decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-  } catch (err) {
-    return next(new AppError("Invalid refresh token", 401));
-  }
+  const user = (
+    await sql.query`
+      SELECT user_id, user_type
+      FROM dbo.Users
+      WHERE user_id = ${decoded.user_id} AND is_active = 1;
+    `
+  ).recordset[0];
 
-  const userResult = await sql.query`
-    SELECT user_id, user_type, is_active
-    FROM dbo.Users
-    WHERE user_id = ${decoded.user_id} AND is_active = 1;
-  `;
+  if (!user) return next(new AppError("User not found", 401));
 
-  const user = userResult.recordset[0];
-  if (!user) {
-    return next(new AppError("User not found", 401));
-  }
-
-  const newAccessToken = signAccessToken({
+  const accessToken = signAccessToken({
     user_id: user.user_id,
     role: user.user_type,
   });
 
-  sendAccessCookie(res, newAccessToken);
+  sendAccessCookie(res, accessToken);
 
-  res.status(200).json({
-    status: "success",
-    accessToken: newAccessToken,
-  });
+  res.status(200).json({ status: "success", accessToken });
 });
 
 exports.logout = (req, res) => {
-  res.cookie("jwt", "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-    expires: new Date(0),
-  });
-
-  res.cookie("refresh_token", "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-    expires: new Date(0),
-  });
+  res.cookie("jwt", "", { expires: new Date(0) });
+  res.cookie("refresh_token", "", { expires: new Date(0) });
 
   res.status(200).json({
     status: "success",

@@ -1,5 +1,5 @@
 {
-  "name": "Medaura",
+  "name": "clynk",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
@@ -22,7 +22,6 @@
     "jsonwebtoken": "^9.0.3",
     "mssql": "^12.2.0",
     "multer": "^2.0.2",
-    "sharp": "^0.34.5",
     "winston": "^3.19.0"
   },
   "devDependencies": {

@@ -19,7 +19,7 @@ exports.createClinic = catchAsync(async (req, res, next) => {
 
   if (!name || !location || !email) {
     return next(
-      new AppError("Clinic name, location and email are required", 400)
+      new AppError("Clinic name, location and email are required", 400),
     );
   }
 
@@ -74,7 +74,6 @@ exports.createClinic = catchAsync(async (req, res, next) => {
   });
 });
 
-
 exports.getPublicClinics = catchAsync(async (req, res) => {
   const result = await sql.query`
     SELECT
@@ -93,5 +92,35 @@ exports.getPublicClinics = catchAsync(async (req, res) => {
     status: "success",
     results: result.recordset.length,
     clinics: result.recordset,
+  });
+});
+
+exports.getActiveClinicStaff = catchAsync(async (req, res, next) => {
+  const clinicId = Number(req.params.clinicId);
+
+  if (!clinicId) {
+    return next(new AppError("Invalid clinic id", 400));
+  }
+
+  const result = await sql.query`
+    SELECT
+      s.staff_id,
+      s.full_name,
+      s.role_title,
+      s.specialist,
+      u.photo
+    FROM dbo.Staff s
+    JOIN dbo.Users u
+      ON s.user_id = u.user_id
+    WHERE s.clinic_id = ${clinicId}
+      AND s.is_verified = 1
+      AND u.is_active = 1
+    ORDER BY s.full_name ASC;
+  `;
+
+  res.status(200).json({
+    status: "success",
+    results: result.recordset.length,
+    staff: result.recordset,
   });
 });

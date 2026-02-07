@@ -6,7 +6,10 @@ exports.isClinicOwner = catchAsync(async (req, res, next) => {
   const ownerUserId = req.user.user_id;
 
   const clinicResult = await sql.query`
-    SELECT clinic_id, status
+    SELECT
+      clinic_id,
+      owner_user_id,
+      status
     FROM dbo.Clinics
     WHERE owner_user_id = ${ownerUserId};
   `;

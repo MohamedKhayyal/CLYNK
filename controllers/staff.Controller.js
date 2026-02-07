@@ -2,95 +2,112 @@ const bcrypt = require("bcryptjs");
 const { sql } = require("../config/db.Config");
 const catchAsync = require("../utilts/catch.Async");
 const AppError = require("../utilts/app.Error");
-const logger = require("../utilts/logger");
 const { createNotification } = require("../utilts/notification");
 
-const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
-
 exports.createStaffForClinic = catchAsync(async (req, res, next) => {
-  const { email, password, full_name, role_title } = req.body;
-  const { clinic_id } = req.clinic;
+  const { email, password, full_name, role_title, specialist } = req.body;
+  const { clinic_id, owner_user_id } = req.clinic;
 
-  if (!email || !password || !full_name) {
+  if (!email || !password || !full_name || !role_title) {
     return next(
-      new AppError("Email, password and full_name are required", 400),
+      new AppError(
+        "Email, password, full_name and role_title are required",
+        400,
+      ),
     );
-  }
-
-  if (!EMAIL_REGEX.test(email)) {
-    return next(new AppError("Invalid email format", 400));
   }
 
   const exists = await sql.query`
     SELECT user_id FROM dbo.Users WHERE email = ${email};
   `;
-
   if (exists.recordset.length) {
     return next(new AppError("Email already exists", 409));
   }
 
+  if (role_title === "doctor" && !specialist) {
+    return next(
+      new AppError("Specialist is required when role_title is doctor", 400),
+    );
+  }
+
   const hashedPassword = await bcrypt.hash(password, 12);
-  const transaction = new sql.Transaction();
-  await transaction.begin();
+
+  const transaction = new sql.Transaction(sql.globalConnectionPool);
+  let transactionStarted = false;
+  let userId;
 
   try {
+    await transaction.begin();
+    transactionStarted = true;
+
     const userResult = await transaction.request().query`
       INSERT INTO dbo.Users (email, password, user_type)
       OUTPUT INSERTED.user_id
       VALUES (${email}, ${hashedPassword}, 'staff');
     `;
 
-    const userId = userResult.recordset[0].user_id;
+    userId = userResult.recordset[0].user_id;
 
     await transaction.request().query`
       INSERT INTO dbo.Staff
-        (user_id, clinic_id, full_name, role_title, is_verified)
+        (user_id, clinic_id, full_name, role_title, specialist, is_verified)
       VALUES
-        (${userId}, ${clinic_id}, ${full_name}, ${role_title || null}, 0);
+        (${userId},
+         ${clinic_id},
+         ${full_name},
+         ${role_title},
+         ${role_title === "doctor" ? specialist : null},
+         0);
     `;
 
     await transaction.commit();
-
-    await createNotification({
-      user_id: userId,
-      title: "Staff Account Created",
-      message: "Your staff account has been created",
-    });
-
-    res.status(201).json({
-      status: "success",
-      staff: {
-        user_id: userId,
-        email,
-        full_name,
-        role_title,
-        clinic_id,
-        is_verified: true,
-      },
-    });
   } catch (err) {
-    await transaction.rollback();
-    next(err);
+    if (transactionStarted) {
+      await transaction.rollback();
+    }
+    return next(err);
   }
+
+  if (owner_user_id) {
+    await createNotification({
+      user_id: owner_user_id,
+      title: "New Staff Pending Verification 👤",
+      message: `Staff "${full_name}" has been added and is waiting for verification.`,
+    });
+  }
+
+  res.status(201).json({
+    status: "success",
+    staff: {
+      user_id: userId,
+      email,
+      full_name,
+      role_title,
+      specialist: role_title === "doctor" ? specialist : null,
+      clinic_id,
+      is_verified: false,
+    },
+  });
 });
 
-exports.getMyClinicStaff = catchAsync(async (req, res, next) => {
+exports.getMyClinicStaff = catchAsync(async (req, res) => {
   const { clinic_id } = req.clinic;
-
-  logger.info(`Get staff for clinic ${clinic_id}`);
 
   const staffResult = await sql.query`
     SELECT
       s.staff_id,
+      u.email,
       s.full_name,
       s.role_title,
+      s.specialist,
       s.is_verified,
-      u.email,
       u.is_active,
       u.photo
     FROM dbo.Staff s
-    JOIN dbo.Users u ON s.user_id = u.user_id
-    WHERE s.clinic_id = ${clinic_id};
+    JOIN dbo.Users u
+      ON s.user_id = u.user_id
+    WHERE s.clinic_id = ${clinic_id}
+    ORDER BY s.staff_id DESC;
   `;
 
   res.status(200).json({
@@ -104,10 +121,6 @@ exports.verifyStaff = catchAsync(async (req, res, next) => {
   const staffId = Number(req.params.staffId);
   const { clinic_id } = req.clinic;
 
-  if (!staffId) {
-    return next(new AppError("Invalid staff id", 400));
-  }
-
   const staffResult = await sql.query`
     SELECT staff_id, user_id, is_verified
     FROM dbo.Staff
@@ -116,7 +129,6 @@ exports.verifyStaff = catchAsync(async (req, res, next) => {
   `;
 
   const staff = staffResult.recordset[0];
-
   if (!staff) {
     return next(new AppError("Staff not found in your clinic", 404));
   }
@@ -133,7 +145,7 @@ exports.verifyStaff = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: staff.user_id,
-    title: "Staff Account Verified",
+    title: "Staff Account Verified ✅",
     message:
       "Your staff account has been verified. You can now access the clinic system.",
   });
@@ -145,7 +157,7 @@ exports.verifyStaff = catchAsync(async (req, res, next) => {
   });
 });
 
-exports.getPendingStaff = catchAsync(async (req, res, next) => {
+exports.getPendingStaff = catchAsync(async (req, res) => {
   const { clinic_id } = req.clinic;
 
   const result = await sql.query`
@@ -153,10 +165,12 @@ exports.getPendingStaff = catchAsync(async (req, res, next) => {
       s.staff_id,
       s.full_name,
       s.role_title,
-      s.is_verified,
-      u.email
+      s.specialist,
+      u.email,
+      u.photo,
+      u.created_at
     FROM dbo.Staff s
-    INNER JOIN dbo.Users u
+    JOIN dbo.Users u
       ON s.user_id = u.user_id
     WHERE s.clinic_id = ${clinic_id}
       AND s.is_verified = 0
