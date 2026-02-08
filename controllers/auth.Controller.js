@@ -205,8 +205,17 @@ exports.login = catchAsync(async (req, res, next) => {
   if (user.user_type === "doctor") {
     profile = (
       await sql.query`
-        SELECT full_name, specialist, work_days, work_from, work_to,
-               consultation_price, location, years_of_experience, bio, is_verified
+        SELECT
+          full_name,
+          specialist,
+          work_days,
+          CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+          CONVERT(VARCHAR(5), work_to, 108) AS work_to,
+          consultation_price,
+          location,
+          years_of_experience,
+          bio,
+          is_verified
         FROM dbo.Doctors WHERE user_id = ${user.user_id};
       `
     ).recordset[0];
@@ -215,8 +224,16 @@ exports.login = catchAsync(async (req, res, next) => {
   if (user.user_type === "staff") {
     profile = (
       await sql.query`
-        SELECT full_name, clinic_id, role_title, specialist, work_days,
-               work_from, work_to, consultation_price, is_verified
+        SELECT
+          full_name,
+          clinic_id,
+          role_title,
+          specialist,
+          work_days,
+          CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+          CONVERT(VARCHAR(5), work_to, 108) AS work_to,
+          consultation_price,
+          is_verified
         FROM dbo.Staff WHERE user_id = ${user.user_id};
       `
     ).recordset[0];

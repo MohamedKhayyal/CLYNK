@@ -46,7 +46,12 @@ exports.createBooking = catchAsync(async (req, res, next) => {
   if (doctor_id) {
     target = (
       await sql.query`
-        SELECT doctor_id, user_id, work_days, work_from, work_to
+        SELECT
+          doctor_id,
+          user_id,
+          work_days,
+          CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+          CONVERT(VARCHAR(5), work_to, 108) AS work_to
         FROM dbo.Doctors
         WHERE doctor_id = ${doctor_id}
           AND is_verified = 1;
@@ -55,7 +60,12 @@ exports.createBooking = catchAsync(async (req, res, next) => {
   } else {
     target = (
       await sql.query`
-        SELECT staff_id, user_id, work_days, work_from, work_to
+        SELECT
+          staff_id,
+          user_id,
+          work_days,
+          CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+          CONVERT(VARCHAR(5), work_to, 108) AS work_to
         FROM dbo.Staff
         WHERE staff_id = ${staff_id}
           AND role_title = 'doctor'
@@ -233,7 +243,10 @@ exports.getAvailableSlots = catchAsync(async (req, res, next) => {
   if (doctor_id) {
     target = (
       await sql.query`
-        SELECT work_days, work_from, work_to
+        SELECT
+          work_days,
+          CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+          CONVERT(VARCHAR(5), work_to, 108) AS work_to
         FROM dbo.Doctors
         WHERE doctor_id = ${doctor_id}
           AND is_verified = 1;
@@ -242,7 +255,10 @@ exports.getAvailableSlots = catchAsync(async (req, res, next) => {
   } else {
     target = (
       await sql.query`
-        SELECT work_days, work_from, work_to
+        SELECT
+          work_days,
+          CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+          CONVERT(VARCHAR(5), work_to, 108) AS work_to
         FROM dbo.Staff
         WHERE staff_id = ${staff_id}
           AND role_title = 'doctor'

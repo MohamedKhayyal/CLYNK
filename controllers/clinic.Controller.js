@@ -90,8 +90,8 @@ exports.getActiveClinicStaff = catchAsync(async (req, res, next) => {
       s.role_title,
       s.specialist,
       s.work_days,
-      s.work_from,
-      s.work_to,
+      CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
+      CONVERT(VARCHAR(5), s.work_to, 108) AS work_to,
       u.photo
     FROM dbo.Staff s
     JOIN dbo.Users u
