@@ -1,6 +1,7 @@
 const AppError = require("../utilts/app.Error");
 
 const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
+const TIME_REGEX = /^\d{2}:\d{2}(:\d{2})?$/;
 const ALLOWED_SIGNUP_ROLES = ["patient", "doctor", "staff"];
 const STAFF_ROLES = ["doctor", "nurse", "receptionist"];
 
@@ -32,20 +33,47 @@ exports.signupValidation = (req, res, next) => {
   }
 
   if (user_type === "doctor") {
-    const { full_name, license_number, specialist, work_days } = profile;
+    const {
+      full_name,
+      license_number,
+      specialist,
+      work_days,
+      work_from,
+      work_to,
+    } = profile;
 
-    if (!full_name || !license_number || !specialist || !work_days) {
+    if (
+      !full_name ||
+      !license_number ||
+      !specialist ||
+      !work_days ||
+      !work_from ||
+      !work_to
+    ) {
       return next(
         new AppError(
-          "Doctor full_name, license_number, specialist and work_days are required",
+          "Doctor full_name, license_number, specialist, work_days, work_from and work_to are required",
           400,
         ),
       );
     }
+
+    if (!TIME_REGEX.test(work_from) || !TIME_REGEX.test(work_to)) {
+      return next(new AppError("Invalid doctor work time format", 400));
+    }
   }
 
   if (user_type === "staff") {
-    const { full_name, clinic_id, role_title, specialist } = profile;
+    const {
+      full_name,
+      clinic_id,
+      role_title,
+      specialist,
+      work_days,
+      work_from,
+      work_to,
+      consultation_price,
+    } = profile;
 
     if (!full_name || !clinic_id || !role_title) {
       return next(
@@ -60,10 +88,41 @@ exports.signupValidation = (req, res, next) => {
       return next(new AppError("Invalid staff role_title", 400));
     }
 
-    if (role_title === "doctor" && !specialist) {
-      return next(
-        new AppError("Specialist is required when staff role is doctor", 400),
-      );
+    if (role_title === "doctor") {
+      if (
+        !specialist ||
+        !work_days ||
+        !work_from ||
+        !work_to ||
+        consultation_price === undefined ||
+        consultation_price === null
+      ) {
+        return next(
+          new AppError(
+            "Staff doctor requires specialist, work_days, work_from, work_to and consultation_price",
+            400,
+          ),
+        );
+      }
+
+      if (!TIME_REGEX.test(work_from) || !TIME_REGEX.test(work_to)) {
+        return next(new AppError("Invalid staff doctor work time format", 400));
+      }
+    } else {
+      if (
+        specialist !== undefined ||
+        work_days !== undefined ||
+        work_from !== undefined ||
+        work_to !== undefined ||
+        consultation_price !== undefined
+      ) {
+        return next(
+          new AppError(
+            "specialist, work_days, work_from, work_to and consultation_price are only allowed for staff doctors",
+            400,
+          ),
+        );
+      }
     }
   }
 

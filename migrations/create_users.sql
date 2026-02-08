@@ -32,15 +32,11 @@ CREATE TABLE dbo.Clinics (
     owner_user_id INT NOT NULL,
     verified_by_admin_id INT NULL,
 
-    name VARCHAR(150) NOT NULL UNIQUE,
-    address VARCHAR(255),
-    location VARCHAR(150) NOT NULL,
+    name NVARCHAR(150) NOT NULL UNIQUE,
+    address NVARCHAR(255),
+    location NVARCHAR(150) NOT NULL,
     phone VARCHAR(20),
     email VARCHAR(150) NOT NULL UNIQUE,
-
-    consultation_price DECIMAL(10,2) NULL,
-    work_from TIME NULL,
-    work_to TIME NULL,
 
     status VARCHAR(20) NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'approved', 'rejected')),
@@ -68,12 +64,12 @@ CREATE TABLE dbo.Doctors (
     gender VARCHAR(10),
 
     specialist NVARCHAR(100) NOT NULL,
-    work_days NVARCHAR(100) NOT NULL,
-    location NVARCHAR(150) NULL,
+    work_days NVARCHAR(100) NOT NULL, -- sun,mon,tue
+    work_from TIME NOT NULL,
+    work_to TIME NOT NULL,
 
+    location NVARCHAR(150) NULL,
     consultation_price DECIMAL(10,2) NULL,
-    work_from TIME NULL,
-    work_to TIME NULL,
 
     is_verified BIT NOT NULL DEFAULT 0,
     years_of_experience TINYINT,
@@ -129,6 +125,11 @@ CREATE TABLE dbo.Staff (
         CHECK (role_title IN ('doctor', 'nurse', 'receptionist')),
 
     specialist NVARCHAR(100) NULL,
+    work_days NVARCHAR(100) NULL,     -- sun,mon,tue
+    work_from TIME NULL,
+    work_to TIME NULL,
+    consultation_price DECIMAL(10,2) NULL,
+
     is_verified BIT NOT NULL DEFAULT 0,
 
     CONSTRAINT FK_Staff_Users
@@ -141,56 +142,76 @@ CREATE TABLE dbo.Staff (
         REFERENCES dbo.Clinics(clinic_id)
         ON DELETE CASCADE,
 
-    CONSTRAINT CK_Staff_Doctor_Specialist
+    CONSTRAINT CK_Staff_Doctor_Data
         CHECK (
-            (role_title = 'doctor' AND specialist IN (
-                N'مخ واعصاب',
-                N'عظام',
-                N'الأورام',
-                N'طب الأذن والأنف والحنجرة',
-                N'طب العيون',
-                N'قلب و اوعية دموية',
-                N'صدر و جهاز تنفسي',
-                N'كلى',
-                N'اسنان',
-                N'اطفال و حديثي الولادة',
-                N'جلدية',
-                N'نسا و توليد'
-            ))
+            (
+                role_title = 'doctor'
+                AND specialist IN (
+                    N'مخ واعصاب',
+                    N'عظام',
+                    N'الأورام',
+                    N'طب الأذن والأنف والحنجرة',
+                    N'طب العيون',
+                    N'قلب و اوعية دموية',
+                    N'صدر و جهاز تنفسي',
+                    N'كلى',
+                    N'اسنان',
+                    N'اطفال و حديثي الولادة',
+                    N'جلدية',
+                    N'نسا و توليد'
+                )
+                AND work_days IS NOT NULL
+                AND work_from IS NOT NULL
+                AND work_to IS NOT NULL
+                AND consultation_price IS NOT NULL
+            )
             OR
-            (role_title <> 'doctor' AND specialist IS NULL)
+            (
+                role_title <> 'doctor'
+                AND specialist IS NULL
+                AND work_days IS NULL
+                AND work_from IS NULL
+                AND work_to IS NULL
+                AND consultation_price IS NULL
+            )
         )
 );
 GO
 
-CREATE TABLE dbo.Reviews (
-    review_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dbo.Bookings (
+    booking_id INT IDENTITY(1,1) PRIMARY KEY,
 
     patient_user_id INT NOT NULL,
-    doctor_id INT NULL,
-    clinic_id INT NULL,
 
-    rating TINYINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
-    comment NVARCHAR(1000) NULL,
+    doctor_id INT NULL,
+    staff_id INT NULL,
+
+    booking_date DATE NOT NULL,
+    booking_from TIME NOT NULL,
+    booking_to TIME NOT NULL,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'confirmed'
+        CHECK (status IN ('confirmed', 'cancelled')),
+
     created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
 
-    CONSTRAINT FK_Reviews_Patient
+    CONSTRAINT FK_Bookings_Patient
         FOREIGN KEY (patient_user_id)
         REFERENCES dbo.Users(user_id),
 
-    CONSTRAINT FK_Reviews_Doctor
+    CONSTRAINT FK_Bookings_Doctor
         FOREIGN KEY (doctor_id)
         REFERENCES dbo.Doctors(doctor_id),
 
-    CONSTRAINT FK_Reviews_Clinic
-        FOREIGN KEY (clinic_id)
-        REFERENCES dbo.Clinics(clinic_id),
+    CONSTRAINT FK_Bookings_Staff
+        FOREIGN KEY (staff_id)
+        REFERENCES dbo.Staff(staff_id),
 
-    CONSTRAINT CK_Reviews_Target
+    CONSTRAINT CK_Bookings_Target
         CHECK (
-            (doctor_id IS NOT NULL AND clinic_id IS NULL)
+            (doctor_id IS NOT NULL AND staff_id IS NULL)
             OR
-            (doctor_id IS NULL AND clinic_id IS NOT NULL)
+            (doctor_id IS NULL AND staff_id IS NOT NULL)
         )
 );
 GO

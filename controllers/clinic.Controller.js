@@ -4,16 +4,7 @@ const AppError = require("../utilts/app.Error");
 const { createNotification } = require("../utilts/notification");
 
 exports.createClinic = catchAsync(async (req, res, next) => {
-  const {
-    name,
-    address,
-    location,
-    phone,
-    email,
-    consultation_price,
-    work_from,
-    work_to,
-  } = req.body;
+  const { name, address, location, phone, email } = req.body;
 
   const ownerUserId = req.user.user_id;
 
@@ -23,7 +14,6 @@ exports.createClinic = catchAsync(async (req, res, next) => {
     );
   }
 
-  /* ===== CHECK IF USER ALREADY HAS CLINIC ===== */
   const exists = await sql.query`
     SELECT clinic_id FROM dbo.Clinics
     WHERE owner_user_id = ${ownerUserId};
@@ -33,11 +23,9 @@ exports.createClinic = catchAsync(async (req, res, next) => {
     return next(new AppError("You already created a clinic", 409));
   }
 
-  /* ===== CREATE CLINIC ===== */
   const result = await sql.query`
     INSERT INTO dbo.Clinics
-      (owner_user_id, name, address, location, phone, email,
-       consultation_price, work_from, work_to, status)
+      (owner_user_id, name, address, location, phone, email, status)
     OUTPUT INSERTED.clinic_id, INSERTED.status
     VALUES
       (${ownerUserId},
@@ -46,15 +34,11 @@ exports.createClinic = catchAsync(async (req, res, next) => {
        ${location},
        ${phone || null},
        ${email},
-       ${consultation_price || null},
-       ${work_from || null},
-       ${work_to || null},
        'pending');
   `;
 
   const clinic = result.recordset[0];
 
-  /* ===== NOTIFY ADMINS ===== */
   const adminsResult = await sql.query`
     SELECT user_id FROM dbo.Admins;
   `;
@@ -80,10 +64,7 @@ exports.getPublicClinics = catchAsync(async (req, res) => {
       clinic_id,
       name,
       location,
-      phone,
-      consultation_price,
-      work_from,
-      work_to
+      phone
     FROM dbo.Clinics
     WHERE status = 'approved';
   `;
@@ -108,6 +89,9 @@ exports.getActiveClinicStaff = catchAsync(async (req, res, next) => {
       s.full_name,
       s.role_title,
       s.specialist,
+      s.work_days,
+      s.work_from,
+      s.work_to,
       u.photo
     FROM dbo.Staff s
     JOIN dbo.Users u

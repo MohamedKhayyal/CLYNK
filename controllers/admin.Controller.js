@@ -5,13 +5,17 @@ const AppError = require("../utilts/app.Error");
 const logger = require("../utilts/logger");
 const { createNotification } = require("../utilts/notification");
 
+const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
+
 exports.createAdmin = catchAsync(async (req, res, next) => {
-  const { email, password, position_title } = req.body;
+  const { email, password, full_name } = req.body;
 
   logger.warn(`Admin creation attempt: ${email}`);
 
-  if (!email || !password) {
-    return next(new AppError("Email and password are required", 400));
+  if (!email || !password || !full_name) {
+    return next(
+      new AppError("Email, password and full_name are required", 400),
+    );
   }
 
   if (!EMAIL_REGEX.test(email)) {
@@ -31,18 +35,20 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
   await transaction.begin();
 
   try {
-    const userResult = await transaction.request().query(`
+    /* ===== CREATE USER ===== */
+    const userResult = await transaction.request().query`
       INSERT INTO dbo.Users (email, password, user_type)
       OUTPUT INSERTED.user_id
-      VALUES ('${email}', '${hashedPassword}', 'admin');
-    `);
+      VALUES (${email}, ${hashedPassword}, 'admin');
+    `;
 
     const userId = userResult.recordset[0].user_id;
 
-    await transaction.request().query(`
-      INSERT INTO dbo.Admins (user_id, position_title)
-      VALUES (${userId}, ${position_title ? `'${position_title}'` : "NULL"});
-    `);
+    /* ===== CREATE ADMIN PROFILE ===== */
+    await transaction.request().query`
+      INSERT INTO dbo.Admins (user_id, full_name)
+      VALUES (${userId}, ${full_name});
+    `;
 
     await transaction.commit();
 
@@ -63,7 +69,7 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
   }
 });
 
-exports.getClinics = catchAsync(async (req, res, next) => {
+exports.getClinics = catchAsync(async (req, res) => {
   const { status } = req.query;
 
   logger.info(`Admin get clinics (status=${status || "all"})`);
@@ -112,24 +118,24 @@ exports.approveClinic = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid clinic id", 400));
   }
 
-  /* ===== ADMIN CHECK ===== */
-  const adminResult = await sql.query`
-    SELECT admin_id FROM dbo.Admins WHERE user_id = ${adminUserId};
-  `;
+  const admin = (
+    await sql.query`
+      SELECT admin_id FROM dbo.Admins WHERE user_id = ${adminUserId};
+    `
+  ).recordset[0];
 
-  const admin = adminResult.recordset[0];
   if (!admin) {
     return next(new AppError("Admin access required", 403));
   }
 
-  /* ===== CLINIC CHECK ===== */
-  const clinicResult = await sql.query`
-    SELECT clinic_id, status, owner_user_id
-    FROM dbo.Clinics
-    WHERE clinic_id = ${clinicId};
-  `;
+  const clinic = (
+    await sql.query`
+      SELECT clinic_id, status, owner_user_id
+      FROM dbo.Clinics
+      WHERE clinic_id = ${clinicId};
+    `
+  ).recordset[0];
 
-  const clinic = clinicResult.recordset[0];
   if (!clinic) {
     return next(new AppError("Clinic not found", 404));
   }
@@ -138,7 +144,6 @@ exports.approveClinic = catchAsync(async (req, res, next) => {
     return next(new AppError("Only pending clinics can be approved", 400));
   }
 
-  /* ===== UPDATE ===== */
   await sql.query`
     UPDATE dbo.Clinics
     SET
@@ -148,11 +153,10 @@ exports.approveClinic = catchAsync(async (req, res, next) => {
     WHERE clinic_id = ${clinicId};
   `;
 
-  /* ===== NOTIFICATION ===== */
   await createNotification({
     user_id: clinic.owner_user_id,
     title: "Clinic Approved ✅",
-    message: "Your clinic has been approved and is now live on the platform.",
+    message: "Your clinic has been approved and is now live.",
   });
 
   res.status(200).json({
@@ -169,22 +173,24 @@ exports.rejectClinic = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid clinic id", 400));
   }
 
-  const adminResult = await sql.query`
-    SELECT admin_id FROM dbo.Admins WHERE user_id = ${adminUserId};
-  `;
+  const admin = (
+    await sql.query`
+      SELECT admin_id FROM dbo.Admins WHERE user_id = ${adminUserId};
+    `
+  ).recordset[0];
 
-  const admin = adminResult.recordset[0];
   if (!admin) {
     return next(new AppError("Admin access required", 403));
   }
 
-  const clinicResult = await sql.query`
-    SELECT clinic_id, status, owner_user_id
-    FROM dbo.Clinics
-    WHERE clinic_id = ${clinicId};
-  `;
+  const clinic = (
+    await sql.query`
+      SELECT clinic_id, status, owner_user_id
+      FROM dbo.Clinics
+      WHERE clinic_id = ${clinicId};
+    `
+  ).recordset[0];
 
-  const clinic = clinicResult.recordset[0];
   if (!clinic) {
     return next(new AppError("Clinic not found", 404));
   }
@@ -205,8 +211,7 @@ exports.rejectClinic = catchAsync(async (req, res, next) => {
   await createNotification({
     user_id: clinic.owner_user_id,
     title: "Clinic Rejected ❌",
-    message:
-      "Your clinic has been rejected. Please review the requirements and try again.",
+    message: "Your clinic was rejected. Please review requirements.",
   });
 
   res.status(200).json({
@@ -223,22 +228,24 @@ exports.verifyDoctor = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid doctor id", 400));
   }
 
-  /* ===== CHECK ADMIN ===== */
-  const adminCheck = await sql.query`
-    SELECT admin_id FROM dbo.Admins WHERE user_id = ${adminUserId};
-  `;
-  if (!adminCheck.recordset.length) {
+  const admin = (
+    await sql.query`
+      SELECT admin_id FROM dbo.Admins WHERE user_id = ${adminUserId};
+    `
+  ).recordset[0];
+
+  if (!admin) {
     return next(new AppError("Admin access required", 403));
   }
 
-  /* ===== CHECK DOCTOR ===== */
-  const doctorResult = await sql.query`
-    SELECT doctor_id, user_id, is_verified
-    FROM dbo.Doctors
-    WHERE doctor_id = ${doctorId};
-  `;
+  const doctor = (
+    await sql.query`
+      SELECT doctor_id, user_id, is_verified
+      FROM dbo.Doctors
+      WHERE doctor_id = ${doctorId};
+    `
+  ).recordset[0];
 
-  const doctor = doctorResult.recordset[0];
   if (!doctor) {
     return next(new AppError("Doctor not found", 404));
   }
@@ -247,19 +254,16 @@ exports.verifyDoctor = catchAsync(async (req, res, next) => {
     return next(new AppError("Doctor already verified", 400));
   }
 
-  /* ===== UPDATE ===== */
   await sql.query`
     UPDATE dbo.Doctors
     SET is_verified = 1
     WHERE doctor_id = ${doctorId};
   `;
 
-  /* ===== NOTIFICATION ===== */
   await createNotification({
     user_id: doctor.user_id,
     title: "Doctor Account Verified ✅",
-    message:
-      "Your doctor account has been verified by the admin. You can now receive appointments.",
+    message: "Your account has been verified. You can now receive bookings.",
   });
 
   logger.info(`Doctor ${doctorId} verified by admin ${adminUserId}`);
@@ -278,21 +282,24 @@ exports.unverifyDoctor = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid doctor id", 400));
   }
 
-  const adminCheck = await sql.query`
-    SELECT admin_id FROM dbo.Admins WHERE user_id = ${adminUserId};
-  `;
-  if (!adminCheck.recordset.length) {
+  const admin = (
+    await sql.query`
+      SELECT admin_id FROM dbo.Admins WHERE user_id = ${adminUserId};
+    `
+  ).recordset[0];
+
+  if (!admin) {
     return next(new AppError("Admin access required", 403));
   }
 
-  /* ===== CHECK DOCTOR ===== */
-  const doctorResult = await sql.query`
-    SELECT doctor_id, user_id, is_verified
-    FROM dbo.Doctors
-    WHERE doctor_id = ${doctorId};
-  `;
+  const doctor = (
+    await sql.query`
+      SELECT doctor_id, user_id, is_verified
+      FROM dbo.Doctors
+      WHERE doctor_id = ${doctorId};
+    `
+  ).recordset[0];
 
-  const doctor = doctorResult.recordset[0];
   if (!doctor) {
     return next(new AppError("Doctor not found", 404));
   }
@@ -301,19 +308,16 @@ exports.unverifyDoctor = catchAsync(async (req, res, next) => {
     return next(new AppError("Doctor already unverified", 400));
   }
 
-  /* ===== UPDATE ===== */
   await sql.query`
     UPDATE dbo.Doctors
     SET is_verified = 0
     WHERE doctor_id = ${doctorId};
   `;
 
-  /* ===== NOTIFICATION ===== */
   await createNotification({
     user_id: doctor.user_id,
     title: "Doctor Account Unverified ⚠️",
-    message:
-      "Your doctor account has been unverified by the admin. Please review your information or contact support.",
+    message: "Your account has been unverified. Please contact support.",
   });
 
   logger.warn(`Doctor ${doctorId} unverified by admin ${adminUserId}`);
@@ -324,7 +328,7 @@ exports.unverifyDoctor = catchAsync(async (req, res, next) => {
   });
 });
 
-exports.getAllDoctors = catchAsync(async (req, res, next) => {
+exports.getAllDoctors = catchAsync(async (req, res) => {
   const result = await sql.query`
     SELECT
       d.doctor_id,
@@ -345,8 +349,7 @@ exports.getAllDoctors = catchAsync(async (req, res, next) => {
       u.is_active,
       u.created_at
     FROM dbo.Doctors d
-    INNER JOIN dbo.Users u
-      ON d.user_id = u.user_id
+    JOIN dbo.Users u ON d.user_id = u.user_id
     ORDER BY d.is_verified ASC, u.created_at DESC;
   `;
 

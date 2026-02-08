@@ -2,6 +2,18 @@ const { sql } = require("../config/db.Config");
 const catchAsync = require("../utilts/catch.Async");
 const AppError = require("../utilts/app.Error");
 
+const normalize = (value) => {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") {
+    const v = value.trim();
+    return v === "" ? null : v;
+  }
+  return value;
+};
+
+const NAME_REGEX = /^[\p{L}\s.'-]{2,150}$/u;
+const TIME_REGEX = /^\d{2}:\d{2}(:\d{2})?$/;
+
 exports.getMe = catchAsync(async (req, res, next) => {
   const { user_id } = req.user;
 
@@ -27,6 +39,7 @@ exports.getMe = catchAsync(async (req, res, next) => {
       `
     ).recordset[0];
   } else if (user_type === "doctor") {
+
     profile = (
       await sql.query`
         SELECT
@@ -35,8 +48,8 @@ exports.getMe = catchAsync(async (req, res, next) => {
           years_of_experience,
           bio,
           consultation_price,
-          work_from,
-          work_to,
+          CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+          CONVERT(VARCHAR(5), work_to, 108)   AS work_to,
           specialist,
           work_days,
           location,
@@ -46,6 +59,7 @@ exports.getMe = catchAsync(async (req, res, next) => {
       `
     ).recordset[0];
   } else if (user_type === "staff") {
+
     profile = (
       await sql.query`
         SELECT
@@ -53,12 +67,17 @@ exports.getMe = catchAsync(async (req, res, next) => {
           clinic_id,
           role_title,
           specialist,
+          work_days,
+          CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+          CONVERT(VARCHAR(5), work_to, 108)   AS work_to,
+          consultation_price,
           is_verified
         FROM dbo.Staff
         WHERE user_id = ${user_id};
       `
     ).recordset[0];
   } else if (user_type === "admin") {
+
     profile = (
       await sql.query`
         SELECT full_name
@@ -90,7 +109,6 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   }
 
   let photo;
-
   if (data.photo) {
     await sql.query`
       UPDATE dbo.Users
@@ -109,16 +127,21 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   let selectQuery;
 
   if (user_type === "patient") {
-    const { full_name, date_of_birth, gender, phone, blood_type } = data;
+    let { full_name, date_of_birth, gender, phone, blood_type } = data;
+
+    full_name = normalize(full_name);
+    if (full_name && !NAME_REGEX.test(full_name)) {
+      return next(new AppError("Invalid full_name", 400));
+    }
 
     updateQuery = sql.query`
       UPDATE dbo.Patients
       SET
-        full_name = COALESCE(${full_name}, full_name),
-        date_of_birth = COALESCE(${date_of_birth}, date_of_birth),
-        gender = COALESCE(${gender}, gender),
-        phone = COALESCE(${phone}, phone),
-        blood_type = COALESCE(${blood_type}, blood_type)
+        full_name     = COALESCE(CAST(${full_name} AS NVARCHAR(150)), full_name),
+        date_of_birth = COALESCE(${normalize(date_of_birth)}, date_of_birth),
+        gender        = COALESCE(${normalize(gender)}, gender),
+        phone         = COALESCE(${normalize(phone)}, phone),
+        blood_type    = COALESCE(${normalize(blood_type)}, blood_type)
       WHERE user_id = ${user_id};
     `;
 
@@ -128,7 +151,8 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "doctor") {
-    const {
+
+    let {
       full_name,
       gender,
       years_of_experience,
@@ -141,19 +165,32 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       location,
     } = data;
 
+    full_name = normalize(full_name);
+    if (full_name && !NAME_REGEX.test(full_name)) {
+      return next(new AppError("Invalid full_name", 400));
+    }
+
+    if (work_from && !TIME_REGEX.test(work_from))
+      return next(new AppError("Invalid work_from format", 400));
+
+    if (work_to && !TIME_REGEX.test(work_to))
+      return next(new AppError("Invalid work_to format", 400));
+
+    if (Array.isArray(work_days)) work_days = work_days.join(",");
+
     updateQuery = sql.query`
       UPDATE dbo.Doctors
       SET
-        full_name = COALESCE(${full_name}, full_name),
-        gender = COALESCE(${gender}, gender),
-        years_of_experience = COALESCE(${years_of_experience}, years_of_experience),
-        bio = COALESCE(${bio}, bio),
-        consultation_price = COALESCE(${consultation_price}, consultation_price),
-        work_from = COALESCE(${work_from}, work_from),
-        work_to = COALESCE(${work_to}, work_to),
-        specialist = COALESCE(${specialist}, specialist),
-        work_days = COALESCE(${work_days}, work_days),
-        location = COALESCE(${location}, location)
+        full_name           = COALESCE(CAST(${full_name} AS NVARCHAR(150)), full_name),
+        gender              = COALESCE(${normalize(gender)}, gender),
+        years_of_experience = COALESCE(${normalize(years_of_experience)}, years_of_experience),
+        bio                 = COALESCE(${normalize(bio)}, bio),
+        consultation_price  = COALESCE(${normalize(consultation_price)}, consultation_price),
+        work_from           = COALESCE(${normalize(work_from)}, work_from),
+        work_to             = COALESCE(${normalize(work_to)}, work_to),
+        specialist          = COALESCE(${normalize(specialist)}, specialist),
+        work_days           = COALESCE(${normalize(work_days)}, work_days),
+        location            = COALESCE(${normalize(location)}, location)
       WHERE user_id = ${user_id};
     `;
 
@@ -164,8 +201,8 @@ exports.updateMe = catchAsync(async (req, res, next) => {
         years_of_experience,
         bio,
         consultation_price,
-        work_from,
-        work_to,
+        CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+        CONVERT(VARCHAR(5), work_to, 108)   AS work_to,
         specialist,
         work_days,
         location,
@@ -174,21 +211,87 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "staff") {
-    const { full_name } = data;
+
+    const staff = (
+      await sql.query`
+        SELECT role_title
+        FROM dbo.Staff
+        WHERE user_id = ${user_id};
+      `
+    ).recordset[0];
+
+    if (!staff) return next(new AppError("Profile not found", 404));
+
+    const isStaffDoctor = staff.role_title === "doctor";
+
+    let {
+      full_name,
+      specialist,
+      work_days,
+      work_from,
+      work_to,
+      consultation_price,
+    } = data;
+
+    full_name = normalize(full_name);
+    if (full_name && !NAME_REGEX.test(full_name)) {
+      return next(new AppError("Invalid full_name", 400));
+    }
+
+    if (work_from && !TIME_REGEX.test(work_from))
+      return next(new AppError("Invalid work_from format", 400));
+
+    if (work_to && !TIME_REGEX.test(work_to))
+      return next(new AppError("Invalid work_to format", 400));
+
+    if (Array.isArray(work_days)) work_days = work_days.join(",");
+
+    if (
+      !isStaffDoctor &&
+      (specialist || work_days || work_from || work_to || consultation_price)
+    ) {
+      return next(
+        new AppError(
+          "Only staff doctors can update medical schedule or price",
+          400,
+        ),
+      );
+    }
 
     updateQuery = sql.query`
       UPDATE dbo.Staff
-      SET full_name = COALESCE(${full_name}, full_name)
+      SET
+        full_name = COALESCE(CAST(${full_name} AS NVARCHAR(150)), full_name),
+        specialist = COALESCE(${isStaffDoctor ? normalize(specialist) : null}, specialist),
+        work_days = COALESCE(${isStaffDoctor ? normalize(work_days) : null}, work_days),
+        work_from = COALESCE(${isStaffDoctor ? normalize(work_from) : null}, work_from),
+        work_to = COALESCE(${isStaffDoctor ? normalize(work_to) : null}, work_to),
+        consultation_price = COALESCE(${isStaffDoctor ? normalize(consultation_price) : null}, consultation_price)
       WHERE user_id = ${user_id};
     `;
 
     selectQuery = sql.query`
-      SELECT full_name, clinic_id, role_title, specialist, is_verified
+      SELECT
+        full_name,
+        clinic_id,
+        role_title,
+        specialist,
+        work_days,
+        CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+        CONVERT(VARCHAR(5), work_to, 108)   AS work_to,
+        consultation_price,
+        is_verified
       FROM dbo.Staff
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "admin") {
-    const { full_name } = data;
+
+    let { full_name } = data;
+    full_name = normalize(full_name);
+
+    if (full_name && !NAME_REGEX.test(full_name)) {
+      return next(new AppError("Invalid full_name", 400));
+    }
 
     if (!full_name && !data.photo) {
       return next(
@@ -196,15 +299,13 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       );
     }
 
-    if (full_name) {
-      updateQuery = sql.query`
-        UPDATE dbo.Admins
-        SET full_name = ${full_name}
-        WHERE user_id = ${user_id};
-      `;
-    } else {
-      updateQuery = { rowsAffected: [1] };
-    }
+    updateQuery = full_name
+      ? sql.query`
+          UPDATE dbo.Admins
+          SET full_name = CAST(${full_name} AS NVARCHAR(150))
+          WHERE user_id = ${user_id};
+        `
+      : { rowsAffected: [1] };
 
     selectQuery = sql.query`
       SELECT full_name
@@ -216,7 +317,6 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   }
 
   const result = updateQuery.rowsAffected ? updateQuery : await updateQuery;
-
   if (result.rowsAffected[0] === 0) {
     return next(new AppError("Profile not found", 404));
   }

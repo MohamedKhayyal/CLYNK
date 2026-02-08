@@ -44,7 +44,6 @@ exports.signup = catchAsync(async (req, res, next) => {
   }
 
   const hashedPassword = await bcrypt.hash(password, 12);
-
   const transaction = new sql.Transaction();
   await transaction.begin();
 
@@ -62,17 +61,12 @@ exports.signup = catchAsync(async (req, res, next) => {
 
       await transaction.request().query`
         INSERT INTO dbo.Patients
-          (user_id, full_name, date_of_birth, gender, phone, blood_type)
+        (user_id, full_name, date_of_birth, gender, phone, blood_type)
         VALUES
-          (${user.user_id},
-           ${full_name},
-           ${date_of_birth || null},
-           ${gender || null},
-           ${phone || null},
-           ${blood_type || null});
+        (${user.user_id}, ${full_name}, ${date_of_birth || null},
+         ${gender || null}, ${phone || null}, ${blood_type || null});
       `;
     }
-
     if (user_type === "doctor") {
       const {
         full_name,
@@ -80,25 +74,22 @@ exports.signup = catchAsync(async (req, res, next) => {
         gender,
         years_of_experience,
         bio,
+        consultation_price,
         specialist,
         work_days,
+        work_from,
+        work_to,
         location,
       } = profile;
 
       await transaction.request().query`
         INSERT INTO dbo.Doctors
-          (user_id, full_name, license_number, gender,
-           years_of_experience, bio, specialist, work_days, location)
+        (user_id, full_name, license_number, gender, years_of_experience,
+         bio, consultation_price, specialist, work_days, work_from, work_to, location)
         VALUES
-          (${user.user_id},
-           ${full_name},
-           ${license_number},
-           ${gender || null},
-           ${years_of_experience || null},
-           ${bio || null},
-           ${specialist},
-           ${work_days},
-           ${location || null});
+        (${user.user_id}, ${full_name}, ${license_number}, ${gender || null},
+         ${years_of_experience || null}, ${bio || null}, ${consultation_price || null},
+         ${specialist}, ${work_days}, ${work_from}, ${work_to}, ${location || null});
       `;
 
       const admins = await transaction.request().query`
@@ -113,33 +104,42 @@ exports.signup = catchAsync(async (req, res, next) => {
         });
       }
     }
-
     if (user_type === "staff") {
-      const { full_name, clinic_id, role_title, specialist } = profile;
+      const {
+        full_name,
+        clinic_id,
+        role_title,
+        specialist,
+        work_days,
+        work_from,
+        work_to,
+        consultation_price,
+      } = profile;
 
-      const clinicResult = await transaction.request().query`
-        SELECT clinic_id, owner_user_id
-        FROM dbo.Clinics
-        WHERE clinic_id = ${clinic_id}
-          AND status = 'approved';
-      `;
+      const clinic = (
+        await transaction.request().query`
+          SELECT clinic_id, owner_user_id
+          FROM dbo.Clinics
+          WHERE clinic_id = ${clinic_id} AND status = 'approved';
+        `
+      ).recordset[0];
 
-      if (!clinicResult.recordset.length) {
+      if (!clinic) {
         throw new AppError("Clinic not found or not approved", 400);
       }
 
-      const clinic = clinicResult.recordset[0];
-
       await transaction.request().query`
         INSERT INTO dbo.Staff
-          (user_id, clinic_id, full_name, role_title, specialist, is_verified)
+        (user_id, clinic_id, full_name, role_title, specialist,
+         work_days, work_from, work_to, consultation_price, is_verified)
         VALUES
-          (${user.user_id},
-           ${clinic_id},
-           ${full_name},
-           ${role_title},
-           ${role_title === "doctor" ? specialist : null},
-           0);
+        (${user.user_id}, ${clinic_id}, ${full_name}, ${role_title},
+         ${role_title === "doctor" ? specialist : null},
+         ${role_title === "doctor" ? work_days : null},
+         ${role_title === "doctor" ? work_from : null},
+         ${role_title === "doctor" ? work_to : null},
+         ${role_title === "doctor" ? consultation_price : null},
+         0);
       `;
 
       await createNotification({
@@ -179,13 +179,14 @@ exports.signup = catchAsync(async (req, res, next) => {
 exports.login = catchAsync(async (req, res, next) => {
   const { email, password } = req.body;
 
-  const result = await sql.query`
-    SELECT user_id, email, password, photo, user_type, is_active
-    FROM dbo.Users
-    WHERE email = ${email} AND is_active = 1;
-  `;
+  const user = (
+    await sql.query`
+      SELECT user_id, email, password, photo, user_type, is_active
+      FROM dbo.Users
+      WHERE email = ${email} AND is_active = 1;
+    `
+  ).recordset[0];
 
-  const user = result.recordset[0];
   if (!user || !(await bcrypt.compare(password, user.password))) {
     return next(new AppError("Invalid email or password", 401));
   }
@@ -204,8 +205,8 @@ exports.login = catchAsync(async (req, res, next) => {
   if (user.user_type === "doctor") {
     profile = (
       await sql.query`
-        SELECT full_name, gender, specialist, work_days, location,
-               years_of_experience, bio, is_verified
+        SELECT full_name, specialist, work_days, work_from, work_to,
+               consultation_price, location, years_of_experience, bio, is_verified
         FROM dbo.Doctors WHERE user_id = ${user.user_id};
       `
     ).recordset[0];
@@ -214,16 +215,17 @@ exports.login = catchAsync(async (req, res, next) => {
   if (user.user_type === "staff") {
     profile = (
       await sql.query`
-        SELECT full_name, clinic_id, role_title, specialist, is_verified
+        SELECT full_name, clinic_id, role_title, specialist, work_days,
+               work_from, work_to, consultation_price, is_verified
         FROM dbo.Staff WHERE user_id = ${user.user_id};
       `
     ).recordset[0];
   }
+
   if (user.user_type === "admin") {
     profile = (
       await sql.query`
-        SELECT full_name
-        FROM dbo.Admins WHERE user_id = ${user.user_id};
+        SELECT full_name FROM dbo.Admins WHERE user_id = ${user.user_id};
       `
     ).recordset[0];
   }

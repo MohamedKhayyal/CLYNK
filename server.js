@@ -15,6 +15,7 @@ const clinicRoute = require("./routes/clinic.Routes");
 const staffRoute = require("./routes/staff.Route");
 const doctorRoute = require("./routes/doctor.Route");
 const adminRoute = require("./routes/admin.Route");
+const bokkingRoute = require("./routes/booking.Route");
 const notificationRoute = require("./routes/notification.Route");
 
 const { globalLimiter } = require("./middlewares/rateLimiters");
@@ -42,6 +43,7 @@ app.use("/api/user", userRoute);
 app.use("/api/clinic", clinicRoute);
 app.use("/api/staff", staffRoute);
 app.use("/api/doctors", doctorRoute);
+app.use("/api/book", bokkingRoute);
 app.use("/api/notifications", notificationRoute);
 app.use("/api/admin", adminRoute);
 
