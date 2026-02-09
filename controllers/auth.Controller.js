@@ -168,7 +168,6 @@ exports.signup = catchAsync(async (req, res, next) => {
         email,
         role: user.user_type,
       },
-      accessToken,
     });
   } catch (err) {
     await transaction.rollback();
@@ -266,7 +265,6 @@ exports.login = catchAsync(async (req, res, next) => {
       role: user.user_type,
       profile,
     },
-    accessToken,
   });
 });
 
@@ -293,7 +291,7 @@ exports.refreshToken = catchAsync(async (req, res, next) => {
 
   sendAccessCookie(res, accessToken);
 
-  res.status(200).json({ status: "success", accessToken });
+  res.status(200).json({ status: "success" });
 });
 
 exports.logout = (req, res) => {

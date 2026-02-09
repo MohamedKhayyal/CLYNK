@@ -7,7 +7,10 @@ const {
   getMyBookings,
   getAvailableSlots,
   cancelBooking,
+  getClinicBookings,
+  cancelClinicBooking,
 } = require("../controllers/booking.Controller");
+const { isClinicOwner } = require("../middlewares/isClinicOwner");
 
 router.post("/", protect, restrictTo("patient"), createBooking);
 router.get(
@@ -17,10 +20,26 @@ router.get(
   getMyBookings,
 );
 
+router.get(
+  "/clinic-bookings",
+  protect,
+  isClinicOwner,
+  restrictTo("doctor"),
+  getClinicBookings
+);
+
 router.get("/slots", getAvailableSlots);
 
 router.patch(
-  "/:id/reject",
+  "/clinic-bookings/:id/cancel",
+  protect,
+  restrictTo("doctor"),
+  isClinicOwner,
+  cancelClinicBooking
+);
+
+router.patch(
+  "/:id/cancel",
   protect,
   restrictTo("doctor", "staff", "patient"),
   cancelBooking,

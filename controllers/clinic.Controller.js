@@ -61,12 +61,31 @@ exports.createClinic = catchAsync(async (req, res, next) => {
 exports.getPublicClinics = catchAsync(async (req, res) => {
   const result = await sql.query`
     SELECT
-      clinic_id,
-      name,
-      location,
-      phone
-    FROM dbo.Clinics
-    WHERE status = 'approved';
+      c.clinic_id,
+      c.name,
+      c.location,
+      c.phone,
+
+      COUNT(DISTINCT s.staff_id) AS doctors_count
+
+    FROM dbo.Clinics c
+
+    LEFT JOIN dbo.Staff s
+      ON s.clinic_id = c.clinic_id
+     AND s.role_title = 'doctor'
+     AND s.is_verified = 1
+
+    WHERE c.status = 'approved'
+
+    GROUP BY
+      c.clinic_id,
+      c.name,
+      c.location,
+      c.phone,
+      c.email,
+      c.created_at
+
+    ORDER BY c.created_at DESC;
   `;
 
   res.status(200).json({
@@ -91,14 +110,23 @@ exports.getActiveClinicStaff = catchAsync(async (req, res, next) => {
       s.specialist,
       s.work_days,
       CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
-      CONVERT(VARCHAR(5), s.work_to, 108) AS work_to,
-      u.photo
+      CONVERT(VARCHAR(5), s.work_to, 108)   AS work_to,
+      s.consultation_price,
+      u.photo,
+
+      CASE
+        WHEN s.role_title = 'doctor' THEN 1
+        ELSE 0
+      END AS can_be_booked
+
     FROM dbo.Staff s
     JOIN dbo.Users u
       ON s.user_id = u.user_id
+
     WHERE s.clinic_id = ${clinicId}
       AND s.is_verified = 1
       AND u.is_active = 1
+
     ORDER BY s.full_name ASC;
   `;
 
@@ -106,5 +134,94 @@ exports.getActiveClinicStaff = catchAsync(async (req, res, next) => {
     status: "success",
     results: result.recordset.length,
     staff: result.recordset,
+  });
+});
+
+exports.getClinicProfile = catchAsync(async (req, res, next) => {
+  const clinicId = Number(req.params.id);
+
+  if (!clinicId) {
+    return next(new AppError("Invalid clinic id", 400));
+  }
+
+  const clinic = (
+    await sql.query`
+      SELECT
+        clinic_id,
+        name,
+        location,
+        phone
+      FROM dbo.Clinics
+      WHERE clinic_id = ${clinicId}
+        AND status = 'approved';
+    `
+  ).recordset[0];
+
+  if (!clinic) {
+    return next(new AppError("Clinic not found", 404));
+  }
+
+  const staff = await sql.query`
+    SELECT
+      s.staff_id,
+      s.full_name,
+      s.specialist,
+      s.work_days,
+      CONVERT(VARCHAR(5), s.work_from,108) AS work_from,
+      CONVERT(VARCHAR(5), s.work_to,108)   AS work_to,
+      s.consultation_price,
+      u.photo
+    FROM dbo.Staff s
+    JOIN dbo.Users u ON u.user_id = s.user_id
+    WHERE s.clinic_id = ${clinicId}
+      AND s.role_title = 'doctor'
+      AND s.is_verified = 1;
+  `;
+
+  res.status(200).json({
+    status: "success",
+    clinic,
+    doctors: staff.recordset,
+  });
+});
+
+exports.getClinicStats = catchAsync(async (req, res) => {
+  const clinic_id = req.clinic.clinic_id;
+
+  const stats = await sql.query`
+    SELECT
+      COUNT(b.booking_id) AS total_bookings,
+      COUNT(DISTINCT b.patient_user_id) AS total_patients,
+
+      SUM(
+        CASE
+          WHEN b.booking_date = CAST(GETDATE() AS DATE)
+          THEN 1 ELSE 0
+        END
+      ) AS today_bookings
+
+    FROM dbo.Bookings b
+    JOIN dbo.Staff s
+      ON s.staff_id = b.staff_id
+    WHERE s.clinic_id = ${clinic_id}
+      AND b.status = 'confirmed';
+  `;
+
+  const doctorsCount = await sql.query`
+    SELECT COUNT(*) AS total_doctors
+    FROM dbo.Staff
+    WHERE clinic_id = ${clinic_id}
+      AND role_title = 'doctor'
+      AND is_verified = 1;
+  `;
+
+  res.status(200).json({
+    status: "success",
+    stats: {
+      total_bookings: stats.recordset[0].total_bookings,
+      today_bookings: stats.recordset[0].today_bookings,
+      total_patients: stats.recordset[0].total_patients,
+      total_doctors: doctorsCount.recordset[0].total_doctors,
+    },
   });
 });

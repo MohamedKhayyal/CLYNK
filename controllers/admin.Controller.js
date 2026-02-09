@@ -340,7 +340,45 @@ exports.getAllDoctors = catchAsync(async (req, res) => {
       d.bio,
       d.consultation_price,
       CONVERT(VARCHAR(5), d.work_from, 108) AS work_from,
-      CONVERT(VARCHAR(5), d.work_to, 108) AS work_to,
+      CONVERT(VARCHAR(5), d.work_to, 108)   AS work_to,
+      d.work_days,
+      d.specialist,
+      d.location,
+      d.is_verified,
+      u.photo,
+      u.is_active,
+
+      COUNT(b.booking_id) AS total_bookings,
+      COUNT(DISTINCT b.patient_user_id) AS total_patients
+
+    FROM dbo.Doctors d
+
+    JOIN dbo.Users u
+      ON d.user_id = u.user_id
+
+    LEFT JOIN dbo.Clinics c
+      ON c.owner_user_id = d.user_id
+     AND c.status = 'approved'
+
+    LEFT JOIN dbo.Bookings b
+      ON b.doctor_id = d.doctor_id
+     AND b.status = 'confirmed'
+
+    WHERE
+      d.is_verified = 1
+      AND c.clinic_id IS NULL
+
+    GROUP BY
+      d.doctor_id,
+      d.user_id,
+      u.email,
+      d.full_name,
+      d.gender,
+      d.years_of_experience,
+      d.bio,
+      d.consultation_price,
+      d.work_from,
+      d.work_to,
       d.work_days,
       d.specialist,
       d.location,
@@ -348,9 +386,10 @@ exports.getAllDoctors = catchAsync(async (req, res) => {
       u.photo,
       u.is_active,
       u.created_at
-    FROM dbo.Doctors d
-    JOIN dbo.Users u ON d.user_id = u.user_id
-    ORDER BY d.is_verified ASC, u.created_at DESC;
+
+    ORDER BY
+      total_bookings DESC,
+      u.created_at DESC;
   `;
 
   res.status(200).json({
