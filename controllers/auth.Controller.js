@@ -99,8 +99,8 @@ exports.signup = catchAsync(async (req, res, next) => {
       for (const admin of admins.recordset) {
         await createNotification({
           user_id: admin.user_id,
-          title: "New Doctor Pending Approval 👨‍⚕️",
-          message: `Doctor "${full_name}" is waiting for verification.`,
+          title: "Doctor Verification Request",
+          message: `A new doctor account for "${full_name}" is awaiting verification.`,
         });
       }
     }
@@ -144,8 +144,8 @@ exports.signup = catchAsync(async (req, res, next) => {
 
       await createNotification({
         user_id: clinic.owner_user_id,
-        title: "New Staff Request 👤",
-        message: `Staff "${full_name}" is waiting for verification.`,
+        title: "Staff Verification Request",
+        message: `A new staff account for "${full_name}" is awaiting verification.`,
       });
     }
 

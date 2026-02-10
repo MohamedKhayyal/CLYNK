@@ -27,9 +27,10 @@ exports.getDoctors = catchAsync(async (req, res) => {
       d.location,
       d.specialist,
       u.photo,
-
-      COUNT(b.booking_id)               AS total_bookings,
-      COUNT(DISTINCT b.patient_user_id) AS total_patients,
+      ISNULL(bs.total_bookings, 0)      AS total_bookings,
+      ISNULL(bs.total_patients, 0)      AS total_patients,
+      ISNULL(rs.total_ratings, 0)       AS total_ratings,
+      CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating,
 
       CAST(1 AS BIT) AS can_be_booked
 
@@ -42,28 +43,27 @@ exports.getDoctors = catchAsync(async (req, res) => {
       ON c.owner_user_id = d.user_id
      AND c.status = 'approved'
 
-    LEFT JOIN dbo.Bookings b
-      ON b.doctor_id = d.doctor_id
-     AND b.status = 'confirmed'
+    OUTER APPLY (
+      SELECT
+        COUNT(*) AS total_bookings,
+        COUNT(DISTINCT b.patient_user_id) AS total_patients
+      FROM dbo.Bookings b
+      WHERE b.doctor_id = d.doctor_id
+        AND b.status = 'confirmed'
+    ) bs
+
+    OUTER APPLY (
+      SELECT
+        COUNT(*) AS total_ratings,
+        ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+      FROM dbo.Ratings r
+      WHERE r.doctor_id = d.doctor_id
+    ) rs
 
     WHERE
       d.is_verified = 1
       AND c.clinic_id IS NULL
       ${specialistFilter}
-
-    GROUP BY
-      d.doctor_id,
-      d.full_name,
-      d.gender,
-      d.years_of_experience,
-      d.bio,
-      d.consultation_price,
-      d.work_from,
-      d.work_to,
-      d.work_days,
-      d.location,
-      d.specialist,
-      u.photo
 
     ORDER BY
       d.years_of_experience DESC,
@@ -102,9 +102,10 @@ exports.getDoctorProfile = catchAsync(async (req, res, next) => {
       d.bio,
       d.is_verified,
       u.photo,
-
-      COUNT(b.booking_id)                     AS total_bookings,
-      COUNT(DISTINCT b.patient_user_id)       AS total_patients
+      ISNULL(bs.total_bookings, 0)            AS total_bookings,
+      ISNULL(bs.total_patients, 0)            AS total_patients,
+      ISNULL(rs.total_ratings, 0)             AS total_ratings,
+      CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
 
     FROM dbo.Doctors d
 
@@ -115,33 +116,27 @@ exports.getDoctorProfile = catchAsync(async (req, res, next) => {
       ON c.owner_user_id = d.user_id
      AND c.status = 'approved'
 
-    LEFT JOIN dbo.Bookings b
-      ON b.doctor_id = d.doctor_id
-     AND b.status = 'confirmed'
+    OUTER APPLY (
+      SELECT
+        COUNT(*) AS total_bookings,
+        COUNT(DISTINCT b.patient_user_id) AS total_patients
+      FROM dbo.Bookings b
+      WHERE b.doctor_id = d.doctor_id
+        AND b.status = 'confirmed'
+    ) bs
+
+    OUTER APPLY (
+      SELECT
+        COUNT(*) AS total_ratings,
+        ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+      FROM dbo.Ratings r
+      WHERE r.doctor_id = d.doctor_id
+    ) rs
 
     WHERE
       d.doctor_id = ${doctor_id}
       AND d.is_verified = 1
       AND c.clinic_id IS NULL
-
-    GROUP BY
-      d.doctor_id,
-      d.user_id,
-      u.email,
-      d.full_name,
-      d.phone,
-      d.gender,
-      d.specialist,
-      d.work_days,
-      d.work_from,
-      d.work_to,
-      d.location,
-      d.consultation_price,
-      d.years_of_experience,
-      d.bio,
-      d.is_verified,
-      u.photo,
-      u.created_at;
   `;
 
   if (!doctor.recordset.length) {
@@ -210,10 +205,23 @@ exports.getDoctorDashboard = catchAsync(async (req, res, next) => {
     ORDER BY b.booking_date, b.booking_from;
   `;
 
+  const ratings = (
+    await sql.query`
+      SELECT
+        COUNT(*) AS total_ratings,
+        CAST(
+          ISNULL(ROUND(AVG(CAST(rating AS FLOAT)), 1), 0) AS DECIMAL(3, 1)
+        ) AS average_rating
+      FROM dbo.Ratings
+      WHERE doctor_id = ${doctor_id};
+    `
+  ).recordset[0];
+
   res.status(200).json({
     status: "success",
     dashboard: {
       stats,
+      ratings,
       upcoming_bookings: upcomingBookings.recordset,
     },
   });

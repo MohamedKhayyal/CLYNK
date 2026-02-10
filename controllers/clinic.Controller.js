@@ -46,8 +46,8 @@ exports.createClinic = catchAsync(async (req, res, next) => {
   for (const admin of adminsResult.recordset) {
     await createNotification({
       user_id: admin.user_id,
-      title: `New Clinic Pending Approval: ${name}`,
-      message: `A new clinic "${name}" has been created and is waiting for approval.`,
+      title: "Clinic Approval Request",
+      message: `A clinic application for "${name}" has been submitted and is awaiting review.`,
     });
   }
 
@@ -65,25 +65,32 @@ exports.getPublicClinics = catchAsync(async (req, res) => {
       c.name,
       c.location,
       c.phone,
-
-      COUNT(DISTINCT s.staff_id) AS doctors_count
+      ISNULL(ds.doctors_count, 0) AS doctors_count,
+      ISNULL(rs.total_ratings, 0) AS total_ratings,
+      CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
 
     FROM dbo.Clinics c
 
-    LEFT JOIN dbo.Staff s
-      ON s.clinic_id = c.clinic_id
-     AND s.role_title = 'doctor'
-     AND s.is_verified = 1
+    OUTER APPLY (
+      SELECT COUNT(*) AS doctors_count
+      FROM dbo.Staff s
+      JOIN dbo.Users su
+        ON su.user_id = s.user_id
+      WHERE s.clinic_id = c.clinic_id
+        AND s.role_title = 'doctor'
+        AND s.is_verified = 1
+        AND su.is_active = 1
+    ) ds
+
+    OUTER APPLY (
+      SELECT
+        COUNT(*) AS total_ratings,
+        ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+      FROM dbo.Ratings r
+      WHERE r.clinic_id = c.clinic_id
+    ) rs
 
     WHERE c.status = 'approved'
-
-    GROUP BY
-      c.clinic_id,
-      c.name,
-      c.location,
-      c.phone,
-      c.email,
-      c.created_at
 
     ORDER BY c.created_at DESC;
   `;
@@ -147,12 +154,21 @@ exports.getClinicProfile = catchAsync(async (req, res, next) => {
   const clinic = (
     await sql.query`
       SELECT
-        clinic_id,
-        name,
-        location,
-        phone
-      FROM dbo.Clinics
-      WHERE clinic_id = ${clinicId}
+        c.clinic_id,
+        c.name,
+        c.location,
+        c.phone,
+        ISNULL(rs.total_ratings, 0) AS total_ratings,
+        CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
+      FROM dbo.Clinics c
+      OUTER APPLY (
+        SELECT
+          COUNT(*) AS total_ratings,
+          ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+        FROM dbo.Ratings r
+        WHERE r.clinic_id = c.clinic_id
+      ) rs
+      WHERE c.clinic_id = ${clinicId}
         AND status = 'approved';
     `
   ).recordset[0];
@@ -215,6 +231,18 @@ exports.getClinicStats = catchAsync(async (req, res) => {
       AND is_verified = 1;
   `;
 
+  const ratings = (
+    await sql.query`
+      SELECT
+        COUNT(*) AS total_ratings,
+        CAST(
+          ISNULL(ROUND(AVG(CAST(rating AS FLOAT)), 1), 0) AS DECIMAL(3, 1)
+        ) AS average_rating
+      FROM dbo.Ratings
+      WHERE clinic_id = ${clinic_id};
+    `
+  ).recordset[0];
+
   res.status(200).json({
     status: "success",
     stats: {
@@ -222,6 +250,8 @@ exports.getClinicStats = catchAsync(async (req, res) => {
       today_bookings: stats.recordset[0].today_bookings,
       total_patients: stats.recordset[0].total_patients,
       total_doctors: doctorsCount.recordset[0].total_doctors,
+      total_ratings: ratings.total_ratings,
+      average_rating: ratings.average_rating,
     },
   });
 });

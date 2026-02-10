@@ -18,6 +18,10 @@ exports.signupValidation = (req, res, next) => {
     return next(new AppError("Invalid email format", 400));
   }
 
+  if (typeof password !== "string" || password.length < 8) {
+    return next(new AppError("Password must be at least 8 characters", 400));
+  }
+
   if (!ALLOWED_SIGNUP_ROLES.includes(user_type)) {
     return next(new AppError("Invalid user type", 400));
   }
@@ -88,6 +92,10 @@ exports.signupValidation = (req, res, next) => {
       return next(new AppError("Invalid staff role_title", 400));
     }
 
+    if (!Number.isInteger(Number(clinic_id)) || Number(clinic_id) <= 0) {
+      return next(new AppError("clinic_id must be a positive integer", 400));
+    }
+
     if (role_title === "doctor") {
       if (
         !specialist ||
@@ -107,6 +115,18 @@ exports.signupValidation = (req, res, next) => {
 
       if (!TIME_REGEX.test(work_from) || !TIME_REGEX.test(work_to)) {
         return next(new AppError("Invalid staff doctor work time format", 400));
+      }
+
+      if (
+        Number.isNaN(Number(consultation_price)) ||
+        Number(consultation_price) < 0
+      ) {
+        return next(
+          new AppError(
+            "consultation_price must be a valid non-negative number",
+            400,
+          ),
+        );
       }
     } else {
       if (

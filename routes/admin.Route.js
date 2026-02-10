@@ -16,5 +16,6 @@ router.patch("/:id/verify", adminController.verifyDoctor);
 router.patch("/:id/unverify", adminController.unverifyDoctor);
 
 router.get("/doctors", adminController.getAllDoctors);
+router.get("/staff", adminController.getAllStaff);
 
 module.exports = router;

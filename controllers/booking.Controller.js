@@ -8,13 +8,14 @@ exports.createBooking = catchAsync(async (req, res, next) => {
   const { doctor_id, staff_id, booking_date, booking_from } = req.body;
   const patient_user_id = req.user.user_id;
 
-  /* ================= VALIDATION ================= */
   if ((!doctor_id && !staff_id) || (doctor_id && staff_id)) {
     return next(new AppError("Booking must be for doctor OR staff only", 400));
   }
 
   if (!booking_date || !booking_from) {
-    return next(new AppError("booking_date and booking_from are required", 400));
+    return next(
+      new AppError("booking_date and booking_from are required", 400),
+    );
   }
 
   if (!/^\d{2}:\d{2}$/.test(booking_from)) {
@@ -32,7 +33,6 @@ exports.createBooking = catchAsync(async (req, res, next) => {
 
   let target;
 
-  /* ================= DOCTOR (FREE) ================= */
   if (doctor_id) {
     target = (
       await sql.query`
@@ -56,7 +56,6 @@ exports.createBooking = catchAsync(async (req, res, next) => {
       return next(new AppError("Doctor not available", 404));
     }
 
-    // 🚫 doctor owns clinic → cannot book as free doctor
     if (target.clinic_id) {
       return next(
         new AppError(
@@ -67,7 +66,6 @@ exports.createBooking = catchAsync(async (req, res, next) => {
     }
   }
 
-  /* ================= STAFF DOCTOR ================= */
   if (staff_id) {
     target = (
       await sql.query`
@@ -89,7 +87,6 @@ exports.createBooking = catchAsync(async (req, res, next) => {
     }
   }
 
-  /* ================= WORK DAY ================= */
   const day = new Date(booking_date)
     .toLocaleDateString("en-US", { weekday: "short" })
     .toLowerCase();
@@ -106,7 +103,6 @@ exports.createBooking = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid booking time", 400));
   }
 
-  /* ================= OVERLAP ================= */
   const overlap = doctor_id
     ? await sql.query`
         SELECT booking_id
@@ -129,7 +125,6 @@ exports.createBooking = catchAsync(async (req, res, next) => {
     return next(new AppError("This time slot is already booked", 409));
   }
 
-  /* ================= CREATE ================= */
   const result = await sql.query`
     INSERT INTO dbo.Bookings
       (patient_user_id, doctor_id, staff_id,
@@ -147,8 +142,8 @@ exports.createBooking = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: target.user_id,
-    title: "New Booking 📅",
-    message: `New booking on ${booking_date} from ${booking_from} to ${booking_to}`,
+    title: "New Booking Received",
+    message: `A booking has been scheduled on ${booking_date} from ${booking_from} to ${booking_to}.`,
   });
 
   res.status(201).json({
@@ -156,7 +151,6 @@ exports.createBooking = catchAsync(async (req, res, next) => {
     booking_id: result.recordset[0].booking_id,
   });
 });
-
 
 exports.getMyBookings = catchAsync(async (req, res, next) => {
   const { user_id, user_type } = req.user;
@@ -217,11 +211,9 @@ exports.getMyBookings = catchAsync(async (req, res, next) => {
       CONVERT(VARCHAR(5), b.booking_to,108)   AS booking_to,
       b.status,
 
-      /* patient */
       p.full_name AS patient_name,
       p.phone     AS patient_phone,
 
-      /* doctor (free or staff) */
       COALESCE(d.full_name, s.full_name) AS doctor_name
 
     FROM dbo.Bookings b
@@ -254,11 +246,16 @@ exports.getClinicBookings = catchAsync(async (req, res, next) => {
   const { date } = req.query;
 
   let dateFilter = "";
+  const request = new sql.Request();
+  request.input("clinicId", clinic_id);
+  request.input("ownerUserId", owner_user_id);
+
   if (date) {
-    dateFilter = `AND b.booking_date = '${date}'`;
+    dateFilter = "AND b.booking_date = @bookingDate";
+    request.input("bookingDate", date);
   }
 
-  const bookings = await sql.query(`
+  const bookings = await request.query(`
     SELECT
       b.booking_id,
       b.booking_date,
@@ -269,7 +266,6 @@ exports.getClinicBookings = catchAsync(async (req, res, next) => {
       p.full_name AS patient_name,
       p.phone     AS patient_phone,
 
-      -- doctor name (staff OR owner doctor)
       COALESCE(s.full_name, d.full_name) AS doctor_name,
 
       c.name AS clinic_name
@@ -279,12 +275,10 @@ exports.getClinicBookings = catchAsync(async (req, res, next) => {
     JOIN dbo.Patients p
       ON p.user_id = b.patient_user_id
 
-    -- staff doctors
     LEFT JOIN dbo.Staff s
       ON s.staff_id = b.staff_id
      AND s.role_title = 'doctor'
 
-    -- free / owner doctors
     LEFT JOIN dbo.Doctors d
       ON d.doctor_id = b.doctor_id
 
@@ -293,13 +287,11 @@ exports.getClinicBookings = catchAsync(async (req, res, next) => {
 
     WHERE
       (
-        -- bookings for clinic staff
-        s.clinic_id = ${clinic_id}
+        s.clinic_id = @clinicId
 
         OR
 
-        -- bookings for clinic owner if he is a doctor
-        d.user_id = ${owner_user_id}
+        d.user_id = @ownerUserId
       )
       ${dateFilter}
 
@@ -312,7 +304,6 @@ exports.getClinicBookings = catchAsync(async (req, res, next) => {
     bookings: bookings.recordset,
   });
 });
-
 
 exports.getAvailableSlots = catchAsync(async (req, res, next) => {
   const { doctor_id, staff_id, booking_date } = req.query;
@@ -332,8 +323,12 @@ exports.getAvailableSlots = catchAsync(async (req, res, next) => {
       await sql.query`
         SELECT work_days,
                CONVERT(VARCHAR(5), work_from,108) AS work_from,
-               CONVERT(VARCHAR(5), work_to,108)   AS work_to
-        FROM dbo.Doctors
+               CONVERT(VARCHAR(5), work_to,108)   AS work_to,
+               c.clinic_id
+        FROM dbo.Doctors d
+        LEFT JOIN dbo.Clinics c
+          ON c.owner_user_id = d.user_id
+         AND c.status = 'approved'
         WHERE doctor_id = ${doctor_id}
           AND is_verified = 1;
       `
@@ -353,6 +348,15 @@ exports.getAvailableSlots = catchAsync(async (req, res, next) => {
   }
 
   if (!target) return next(new AppError("Doctor not available", 404));
+
+  if (doctor_id && target.clinic_id) {
+    return next(
+      new AppError(
+        "This doctor owns a clinic. Please book through clinic staff.",
+        400,
+      ),
+    );
+  }
 
   const day = new Date(booking_date)
     .toLocaleDateString("en-US", { weekday: "short" })
@@ -468,7 +472,7 @@ exports.cancelBooking = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: booking.patient_user_id,
-    title: "Booking Cancelled ❌",
+    title: "Booking Cancelled",
     message: "Your booking has been cancelled.",
   });
 
@@ -512,17 +516,15 @@ exports.cancelClinicBooking = catchAsync(async (req, res, next) => {
     return next(new AppError("Booking already cancelled", 400));
   }
 
-  /* ========= CANCEL ========= */
   await sql.query`
     UPDATE dbo.Bookings
     SET status = 'cancelled'
     WHERE booking_id = ${booking_id};
   `;
 
-  /* ========= NOTIFY PATIENT ========= */
   await createNotification({
     user_id: booking.patient_user_id,
-    title: "Booking Cancelled ❌",
+    title: "Booking Cancelled",
     message: "Your booking has been cancelled by the clinic.",
   });
 

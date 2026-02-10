@@ -39,7 +39,6 @@ exports.getMe = catchAsync(async (req, res, next) => {
       `
     ).recordset[0];
   } else if (user_type === "doctor") {
-
     profile = (
       await sql.query`
         SELECT
@@ -53,13 +52,21 @@ exports.getMe = catchAsync(async (req, res, next) => {
           specialist,
           work_days,
           location,
-          is_verified
-        FROM dbo.Doctors
-        WHERE user_id = ${user_id};
+          is_verified,
+          ISNULL(rs.total_ratings, 0) AS total_ratings,
+          CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
+        FROM dbo.Doctors d
+        OUTER APPLY (
+          SELECT
+            COUNT(*) AS total_ratings,
+            ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+          FROM dbo.Ratings r
+          WHERE r.doctor_id = d.doctor_id
+        ) rs
+        WHERE d.user_id = ${user_id};
       `
     ).recordset[0];
   } else if (user_type === "staff") {
-
     profile = (
       await sql.query`
         SELECT
@@ -77,7 +84,6 @@ exports.getMe = catchAsync(async (req, res, next) => {
       `
     ).recordset[0];
   } else if (user_type === "admin") {
-
     profile = (
       await sql.query`
         SELECT full_name
@@ -151,7 +157,6 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "doctor") {
-
     let {
       full_name,
       gender,
@@ -206,12 +211,20 @@ exports.updateMe = catchAsync(async (req, res, next) => {
         specialist,
         work_days,
         location,
-        is_verified
-      FROM dbo.Doctors
-      WHERE user_id = ${user_id};
+        is_verified,
+        ISNULL(rs.total_ratings, 0) AS total_ratings,
+        CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
+      FROM dbo.Doctors d
+      OUTER APPLY (
+        SELECT
+          COUNT(*) AS total_ratings,
+          ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+        FROM dbo.Ratings r
+        WHERE r.doctor_id = d.doctor_id
+      ) rs
+      WHERE d.user_id = ${user_id};
     `;
   } else if (user_type === "staff") {
-
     const staff = (
       await sql.query`
         SELECT role_title
@@ -285,7 +298,6 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       WHERE user_id = ${user_id};
     `;
   } else if (user_type === "admin") {
-
     let { full_name } = data;
     full_name = normalize(full_name);
 

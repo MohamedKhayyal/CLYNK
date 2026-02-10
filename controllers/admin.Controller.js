@@ -35,7 +35,6 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
   await transaction.begin();
 
   try {
-    /* ===== CREATE USER ===== */
     const userResult = await transaction.request().query`
       INSERT INTO dbo.Users (email, password, user_type)
       OUTPUT INSERTED.user_id
@@ -44,7 +43,6 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
 
     const userId = userResult.recordset[0].user_id;
 
-    /* ===== CREATE ADMIN PROFILE ===== */
     await transaction.request().query`
       INSERT INTO dbo.Admins (user_id, full_name)
       VALUES (${userId}, ${full_name});
@@ -84,9 +82,27 @@ exports.getClinics = catchAsync(async (req, res) => {
           c.location,
           c.status,
           c.created_at,
-          u.email AS owner_email
+          u.email AS owner_email,
+          ISNULL(ss.total_staff, 0) AS total_staff,
+          ISNULL(r.total_ratings, 0) AS total_ratings,
+          CAST(ISNULL(r.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
         FROM dbo.Clinics c
         JOIN dbo.Users u ON c.owner_user_id = u.user_id
+        OUTER APPLY (
+          SELECT COUNT(*) AS total_staff
+          FROM dbo.Staff s
+          JOIN dbo.Users su
+            ON su.user_id = s.user_id
+          WHERE s.clinic_id = c.clinic_id
+            AND su.is_active = 1
+        ) ss
+        OUTER APPLY (
+          SELECT
+            COUNT(*) AS total_ratings,
+            ROUND(AVG(CAST(rt.rating AS FLOAT)), 1) AS average_rating
+          FROM dbo.Ratings rt
+          WHERE rt.clinic_id = c.clinic_id
+        ) r
         WHERE c.status = ${status};
       `
     : await sql.query`
@@ -98,9 +114,27 @@ exports.getClinics = catchAsync(async (req, res) => {
           c.location,
           c.status,
           c.created_at,
-          u.email AS owner_email
+          u.email AS owner_email,
+          ISNULL(ss.total_staff, 0) AS total_staff,
+          ISNULL(r.total_ratings, 0) AS total_ratings,
+          CAST(ISNULL(r.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
         FROM dbo.Clinics c
-        JOIN dbo.Users u ON c.owner_user_id = u.user_id;
+        JOIN dbo.Users u ON c.owner_user_id = u.user_id
+        OUTER APPLY (
+          SELECT COUNT(*) AS total_staff
+          FROM dbo.Staff s
+          JOIN dbo.Users su
+            ON su.user_id = s.user_id
+          WHERE s.clinic_id = c.clinic_id
+            AND su.is_active = 1
+        ) ss
+        OUTER APPLY (
+          SELECT
+            COUNT(*) AS total_ratings,
+            ROUND(AVG(CAST(rt.rating AS FLOAT)), 1) AS average_rating
+          FROM dbo.Ratings rt
+          WHERE rt.clinic_id = c.clinic_id
+        ) r;
       `;
 
   res.status(200).json({
@@ -155,7 +189,7 @@ exports.approveClinic = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: clinic.owner_user_id,
-    title: "Clinic Approved ✅",
+    title: "Clinic Approved",
     message: "Your clinic has been approved and is now live.",
   });
 
@@ -210,8 +244,9 @@ exports.rejectClinic = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: clinic.owner_user_id,
-    title: "Clinic Rejected ❌",
-    message: "Your clinic was rejected. Please review requirements.",
+    title: "Clinic Rejected",
+    message:
+      "Your clinic application has been rejected. Please review the requirements and resubmit.",
   });
 
   res.status(200).json({
@@ -262,8 +297,9 @@ exports.verifyDoctor = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: doctor.user_id,
-    title: "Doctor Account Verified ✅",
-    message: "Your account has been verified. You can now receive bookings.",
+    title: "Doctor Account Verified",
+    message:
+      "Your doctor account has been verified. You can now receive bookings.",
   });
 
   logger.info(`Doctor ${doctorId} verified by admin ${adminUserId}`);
@@ -316,8 +352,9 @@ exports.unverifyDoctor = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: doctor.user_id,
-    title: "Doctor Account Unverified ⚠️",
-    message: "Your account has been unverified. Please contact support.",
+    title: "Doctor Account Verification Removed",
+    message:
+      "Your doctor account verification has been removed. Please contact support for assistance.",
   });
 
   logger.warn(`Doctor ${doctorId} unverified by admin ${adminUserId}`);
@@ -347,9 +384,10 @@ exports.getAllDoctors = catchAsync(async (req, res) => {
       d.is_verified,
       u.photo,
       u.is_active,
-
-      COUNT(b.booking_id) AS total_bookings,
-      COUNT(DISTINCT b.patient_user_id) AS total_patients
+      ISNULL(bs.total_bookings, 0) AS total_bookings,
+      ISNULL(bs.total_patients, 0) AS total_patients,
+      ISNULL(rs.total_ratings, 0) AS total_ratings,
+      CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
 
     FROM dbo.Doctors d
 
@@ -360,35 +398,29 @@ exports.getAllDoctors = catchAsync(async (req, res) => {
       ON c.owner_user_id = d.user_id
      AND c.status = 'approved'
 
-    LEFT JOIN dbo.Bookings b
-      ON b.doctor_id = d.doctor_id
-     AND b.status = 'confirmed'
+    OUTER APPLY (
+      SELECT
+        COUNT(*) AS total_bookings,
+        COUNT(DISTINCT b.patient_user_id) AS total_patients
+      FROM dbo.Bookings b
+      WHERE b.doctor_id = d.doctor_id
+        AND b.status = 'confirmed'
+    ) bs
+
+    OUTER APPLY (
+      SELECT
+        COUNT(*) AS total_ratings,
+        ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+      FROM dbo.Ratings r
+      WHERE r.doctor_id = d.doctor_id
+    ) rs
 
     WHERE
       d.is_verified = 1
       AND c.clinic_id IS NULL
 
-    GROUP BY
-      d.doctor_id,
-      d.user_id,
-      u.email,
-      d.full_name,
-      d.gender,
-      d.years_of_experience,
-      d.bio,
-      d.consultation_price,
-      d.work_from,
-      d.work_to,
-      d.work_days,
-      d.specialist,
-      d.location,
-      d.is_verified,
-      u.photo,
-      u.is_active,
-      u.created_at
-
     ORDER BY
-      total_bookings DESC,
+      ISNULL(bs.total_bookings, 0) DESC,
       u.created_at DESC;
   `;
 
@@ -396,5 +428,44 @@ exports.getAllDoctors = catchAsync(async (req, res) => {
     status: "success",
     results: result.recordset.length,
     doctors: result.recordset,
+  });
+});
+
+exports.getAllStaff = catchAsync(async (req, res) => {
+  const result = await sql.query`
+    SELECT
+      s.staff_id,
+      s.user_id,
+      u.email,
+      s.full_name,
+      s.role_title,
+      s.specialist,
+      s.work_days,
+      CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
+      CONVERT(VARCHAR(5), s.work_to, 108)   AS work_to,
+      s.consultation_price,
+      s.is_verified,
+      u.is_active,
+      u.photo,
+      c.clinic_id,
+      c.name AS clinic_name,
+      c.status AS clinic_status,
+      c.location AS clinic_location,
+      c.owner_user_id,
+      owner_u.email AS clinic_owner_email
+    FROM dbo.Staff s
+    JOIN dbo.Users u
+      ON u.user_id = s.user_id
+    JOIN dbo.Clinics c
+      ON c.clinic_id = s.clinic_id
+    JOIN dbo.Users owner_u
+      ON owner_u.user_id = c.owner_user_id
+    ORDER BY c.clinic_id DESC, s.staff_id DESC;
+  `;
+
+  res.status(200).json({
+    status: "success",
+    results: result.recordset.length,
+    staff: result.recordset,
   });
 });
