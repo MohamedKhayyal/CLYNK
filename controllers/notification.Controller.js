@@ -35,6 +35,6 @@ exports.markAsRead = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    message: "Notification marked as read",
+    message: "تم تعليم الإشعار كمقروء",
   });
 });

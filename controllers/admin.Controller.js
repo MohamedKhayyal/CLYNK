@@ -2,7 +2,6 @@ const bcrypt = require("bcryptjs");
 const { sql } = require("../config/db.Config");
 const catchAsync = require("../utilts/catch.Async");
 const AppError = require("../utilts/app.Error");
-const logger = require("../utilts/logger");
 const { createNotification } = require("../utilts/notification");
 
 const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
@@ -10,11 +9,9 @@ const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
 exports.createAdmin = catchAsync(async (req, res, next) => {
   const { email, password, full_name } = req.body;
 
-  logger.warn(`Admin creation attempt: ${email}`);
-
   if (!email || !password || !full_name) {
     return next(
-      new AppError("Email, password and full_name are required", 400),
+      new AppError("Email, password, and full_name are required", 400),
     );
   }
 
@@ -27,7 +24,7 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
   `;
 
   if (exists.recordset.length) {
-    return next(new AppError("Email already exists", 409));
+    return next(new AppError("Email is already in use", 409));
   }
 
   const hashedPassword = await bcrypt.hash(password, 12);
@@ -50,8 +47,6 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
 
     await transaction.commit();
 
-    logger.warn(`ADMIN CREATED: ${email}`);
-
     res.status(201).json({
       status: "success",
       user: {
@@ -62,15 +57,12 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
     });
   } catch (err) {
     await transaction.rollback();
-    logger.error(`Create admin failed: ${err.message}`);
     next(err);
   }
 });
 
 exports.getClinics = catchAsync(async (req, res) => {
   const { status } = req.query;
-
-  logger.info(`Admin get clinics (status=${status || "all"})`);
 
   const result = status
     ? await sql.query`
@@ -159,7 +151,7 @@ exports.approveClinic = catchAsync(async (req, res, next) => {
   ).recordset[0];
 
   if (!admin) {
-    return next(new AppError("Admin access required", 403));
+    return next(new AppError("Admin privileges are required", 403));
   }
 
   const clinic = (
@@ -175,7 +167,9 @@ exports.approveClinic = catchAsync(async (req, res, next) => {
   }
 
   if (clinic.status !== "pending") {
-    return next(new AppError("Only pending clinics can be approved", 400));
+    return next(
+      new AppError("Only clinics with pending status can be approved", 400),
+    );
   }
 
   await sql.query`
@@ -189,13 +183,13 @@ exports.approveClinic = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: clinic.owner_user_id,
-    title: "Clinic Approved",
-    message: "Your clinic has been approved and is now live.",
+    title: "تم اعتماد العيادة",
+    message: "تم اعتماد عيادتك وأصبحت متاحة الآن.",
   });
 
   res.status(200).json({
     status: "success",
-    message: "Clinic approved successfully",
+    message: "تم اعتماد العيادة بنجاح",
   });
 });
 
@@ -214,7 +208,7 @@ exports.rejectClinic = catchAsync(async (req, res, next) => {
   ).recordset[0];
 
   if (!admin) {
-    return next(new AppError("Admin access required", 403));
+    return next(new AppError("Admin privileges are required", 403));
   }
 
   const clinic = (
@@ -230,7 +224,9 @@ exports.rejectClinic = catchAsync(async (req, res, next) => {
   }
 
   if (clinic.status !== "pending") {
-    return next(new AppError("Only pending clinics can be rejected", 400));
+    return next(
+      new AppError("Only clinics with pending status can be rejected", 400),
+    );
   }
 
   await sql.query`
@@ -244,14 +240,13 @@ exports.rejectClinic = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: clinic.owner_user_id,
-    title: "Clinic Rejected",
-    message:
-      "Your clinic application has been rejected. Please review the requirements and resubmit.",
+    title: "تم رفض العيادة",
+    message: "تم رفض طلب العيادة. يرجى مراجعة المتطلبات وإعادة التقديم.",
   });
 
   res.status(200).json({
     status: "success",
-    message: "Clinic rejected successfully",
+    message: "تم رفض العيادة بنجاح",
   });
 });
 
@@ -270,7 +265,7 @@ exports.verifyDoctor = catchAsync(async (req, res, next) => {
   ).recordset[0];
 
   if (!admin) {
-    return next(new AppError("Admin access required", 403));
+    return next(new AppError("Admin privileges are required", 403));
   }
 
   const doctor = (
@@ -286,7 +281,7 @@ exports.verifyDoctor = catchAsync(async (req, res, next) => {
   }
 
   if (doctor.is_verified) {
-    return next(new AppError("Doctor already verified", 400));
+    return next(new AppError("Doctor is already verified", 400));
   }
 
   await sql.query`
@@ -297,16 +292,13 @@ exports.verifyDoctor = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: doctor.user_id,
-    title: "Doctor Account Verified",
-    message:
-      "Your doctor account has been verified. You can now receive bookings.",
+    title: "تم توثيق حساب الطبيب",
+    message: "تم توثيق حسابك كطبيب. يمكنك الآن استقبال الحجوزات.",
   });
-
-  logger.info(`Doctor ${doctorId} verified by admin ${adminUserId}`);
 
   res.status(200).json({
     status: "success",
-    message: "Doctor verified successfully",
+    message: "تم توثيق الطبيب بنجاح",
   });
 });
 
@@ -325,7 +317,7 @@ exports.unverifyDoctor = catchAsync(async (req, res, next) => {
   ).recordset[0];
 
   if (!admin) {
-    return next(new AppError("Admin access required", 403));
+    return next(new AppError("Admin privileges are required", 403));
   }
 
   const doctor = (
@@ -341,7 +333,7 @@ exports.unverifyDoctor = catchAsync(async (req, res, next) => {
   }
 
   if (!doctor.is_verified) {
-    return next(new AppError("Doctor already unverified", 400));
+    return next(new AppError("Doctor is already unverified", 400));
   }
 
   await sql.query`
@@ -352,16 +344,13 @@ exports.unverifyDoctor = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: doctor.user_id,
-    title: "Doctor Account Verification Removed",
-    message:
-      "Your doctor account verification has been removed. Please contact support for assistance.",
+    title: "تم إلغاء توثيق حساب الطبيب",
+    message: "تم إلغاء توثيق حسابك كطبيب. يرجى التواصل مع الدعم للمساعدة.",
   });
-
-  logger.warn(`Doctor ${doctorId} unverified by admin ${adminUserId}`);
 
   res.status(200).json({
     status: "success",
-    message: "Doctor unverified successfully",
+    message: "تم إلغاء توثيق الطبيب بنجاح",
   });
 });
 

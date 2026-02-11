@@ -10,7 +10,7 @@ exports.createClinic = catchAsync(async (req, res, next) => {
 
   if (!name || !location || !email) {
     return next(
-      new AppError("Clinic name, location and email are required", 400),
+      new AppError("Clinic name, location, and email are required", 400),
     );
   }
 
@@ -20,7 +20,7 @@ exports.createClinic = catchAsync(async (req, res, next) => {
   `;
 
   if (exists.recordset.length) {
-    return next(new AppError("You already created a clinic", 409));
+    return next(new AppError("You have already created a clinic", 409));
   }
 
   const result = await sql.query`
@@ -46,15 +46,15 @@ exports.createClinic = catchAsync(async (req, res, next) => {
   for (const admin of adminsResult.recordset) {
     await createNotification({
       user_id: admin.user_id,
-      title: "Clinic Approval Request",
-      message: `A clinic application for "${name}" has been submitted and is awaiting review.`,
+      title: "طلب اعتماد عيادة",
+      message: `تم إرسال طلب عيادة باسم "${name}" وهو بانتظار المراجعة.`,
     });
   }
 
   res.status(201).json({
     status: "success",
     clinic,
-    message: "Clinic created and pending admin approval",
+    message: "تم إنشاء العيادة وبانتظار اعتماد المشرف",
   });
 });
 

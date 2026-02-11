@@ -35,7 +35,7 @@ const parseRatingBody = (body) => {
   }
 
   if (comment.length > 500) {
-    throw new AppError("comment must be 500 characters or less", 400);
+    throw new AppError("comment must not exceed 500 characters", 400);
   }
 
   return { rating, comment };
@@ -225,7 +225,7 @@ exports.rateDoctor = catchAsync(async (req, res, next) => {
   const booked = await hasConfirmedDoctorBooking(patientUserId, doctorId);
   if (!booked) {
     return next(
-      new AppError("You can only rate doctors you have booked before", 403),
+      new AppError("You can rate only doctors you previously booked with", 403),
     );
   }
 
@@ -240,8 +240,8 @@ exports.rateDoctor = catchAsync(async (req, res, next) => {
     status: "success",
     message:
       result.action === "created"
-        ? "Doctor rating created"
-        : "Doctor rating updated",
+        ? "تم إنشاء تقييم الطبيب"
+        : "تم تحديث تقييم الطبيب",
     rating: {
       rating_id: result.rating_id,
       doctor_id: doctorId,
@@ -268,7 +268,7 @@ exports.rateClinic = catchAsync(async (req, res, next) => {
   const booked = await hasConfirmedClinicBooking(patientUserId, clinicId);
   if (!booked) {
     return next(
-      new AppError("You can only rate clinics you have booked before", 403),
+      new AppError("You can rate only clinics you previously booked with", 403),
     );
   }
 
@@ -283,8 +283,8 @@ exports.rateClinic = catchAsync(async (req, res, next) => {
     status: "success",
     message:
       result.action === "created"
-        ? "Clinic rating created"
-        : "Clinic rating updated",
+        ? "تم إنشاء تقييم العيادة"
+        : "تم تحديث تقييم العيادة",
     rating: {
       rating_id: result.rating_id,
       clinic_id: clinicId,

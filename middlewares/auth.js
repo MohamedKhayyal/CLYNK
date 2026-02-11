@@ -1,7 +1,6 @@
 const jwt = require("jsonwebtoken");
 const { sql } = require("../config/db.Config");
 const catchAsync = require("../utilts/catch.Async");
-const logger = require("../utilts/logger");
 const AppError = require("../utilts/app.Error");
 
 exports.protect = catchAsync(async (req, res, next) => {
@@ -17,12 +16,11 @@ exports.protect = catchAsync(async (req, res, next) => {
   }
 
   if (!token) {
-    logger.warn("Auth protect: No token provided");
     return next(
       new AppError(
         "You are not logged in. Please log in to access this route.",
-        401
-      )
+        401,
+      ),
     );
   }
 
@@ -30,9 +28,8 @@ exports.protect = catchAsync(async (req, res, next) => {
   try {
     decoded = jwt.verify(token, process.env.JWT_SECRET);
   } catch (err) {
-    logger.warn("Auth protect: Invalid or expired token");
     return next(
-      new AppError("Invalid or expired token. Please log in again.", 401)
+      new AppError("Token is invalid or expired. Please log in again.", 401),
     );
   }
 
@@ -45,12 +42,11 @@ exports.protect = catchAsync(async (req, res, next) => {
   const user = result.recordset[0];
 
   if (!user || !user.is_active) {
-    logger.warn(`Auth protect: user invalid (${decoded.user_id})`);
     return next(
       new AppError(
-        "User belonging to this token no longer exists or is inactive.",
-        401
-      )
+        "The user associated with this token does not exist or is inactive.",
+        401,
+      ),
     );
   }
 
@@ -62,10 +58,7 @@ exports.restrictTo = (...roles) => {
   return (req, res, next) => {
     if (!req.user || !roles.includes(req.user.user_type)) {
       return next(
-        new AppError(
-          "You do not have permission to perform this action.",
-          403
-        )
+        new AppError("You do not have permission to perform this action.", 403),
       );
     }
     next();

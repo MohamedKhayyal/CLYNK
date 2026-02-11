@@ -14,7 +14,7 @@ const corsOptions = {
     }
 
     return callback(
-      new AppError("CORS policy: Origin not allowed", 403),
+      new AppError("CORS policy: origin is not allowed", 403),
       false
     );
   },

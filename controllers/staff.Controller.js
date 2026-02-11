@@ -24,21 +24,21 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
   if (!email || !password || !full_name || !role_title) {
     return next(
       new AppError(
-        "Email, password, full_name and role_title are required",
+        "Email, password, full_name, and role_title are required",
         400,
       ),
     );
   }
 
   if (!ALLOWED_STAFF_ROLES.has(role_title)) {
-    return next(new AppError("Invalid role_title", 400));
+    return next(new AppError("Invalid role_title value", 400));
   }
 
   const exists = await sql.query`
     SELECT user_id FROM dbo.Users WHERE email = ${email};
   `;
   if (exists.recordset.length) {
-    return next(new AppError("Email already exists", 409));
+    return next(new AppError("Email is already in use", 409));
   }
 
   const isDoctor = role_title === "doctor";
@@ -50,14 +50,14 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
   if (isDoctor) {
     if (!specialist) {
       return next(
-        new AppError("Specialist is required when role_title is doctor", 400),
+        new AppError("specialist is required when role_title is doctor", 400),
       );
     }
 
     if (!normalizedWorkDays || !work_from || !work_to) {
       return next(
         new AppError(
-          "work_days, work_from and work_to are required for staff doctors",
+          "work_days, work_from, and work_to are required for staff doctors",
           400,
         ),
       );
@@ -128,8 +128,8 @@ exports.createStaffForClinic = catchAsync(async (req, res, next) => {
   if (owner_user_id) {
     await createNotification({
       user_id: owner_user_id,
-      title: "Staff Verification Pending",
-      message: `The staff account for "${full_name}" has been created and is awaiting verification.`,
+      title: "توثيق الموظف قيد الانتظار",
+      message: `تم إنشاء حساب موظف باسم "${full_name}" وهو بانتظار التوثيق.`,
     });
   }
 
@@ -191,11 +191,11 @@ exports.verifyStaff = catchAsync(async (req, res, next) => {
 
   const staff = staffResult.recordset[0];
   if (!staff) {
-    return next(new AppError("Staff not found in your clinic", 404));
+    return next(new AppError("Staff member is not part of your clinic", 404));
   }
 
   if (staff.is_verified) {
-    return next(new AppError("Staff already verified", 400));
+    return next(new AppError("Staff member is already verified", 400));
   }
 
   await sql.query`
@@ -206,14 +206,14 @@ exports.verifyStaff = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: staff.user_id,
-    title: "Staff Account Verified",
+    title: "تم توثيق حساب الموظف",
     message:
-      "Your staff account has been verified. You can now access clinic features.",
+      "تم توثيق حسابك كموظف. يمكنك الآن الوصول إلى ميزات العيادة.",
   });
 
   res.status(200).json({
     status: "success",
-    message: "Staff verified successfully",
+    message: "Staff member verified successfully",
     staff_id: staffId,
   });
 });
@@ -242,5 +242,71 @@ exports.getPendingStaff = catchAsync(async (req, res) => {
     status: "success",
     results: result.recordset.length,
     staff: result.recordset,
+  });
+});
+
+exports.getStaffProfile = catchAsync(async (req, res, next) => {
+  const staffId = Number(req.params.id);
+
+  if (!Number.isInteger(staffId) || staffId <= 0) {
+    return next(new AppError("Invalid staff id", 400));
+  }
+
+  const staff = await sql.query`
+    SELECT
+      s.staff_id,
+      s.user_id,
+      s.full_name,
+      s.role_title,
+      s.specialist,
+      s.work_days,
+      CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
+      CONVERT(VARCHAR(5), s.work_to, 108)   AS work_to,
+      s.consultation_price,
+      s.is_verified,
+      u.photo,
+      c.clinic_id,
+      c.name AS clinic_name,
+      c.location AS clinic_location,
+      c.phone AS clinic_phone,
+      ISNULL(bs.total_bookings, 0) AS total_bookings,
+      ISNULL(bs.total_patients, 0) AS total_patients,
+      ISNULL(cr.total_ratings, 0) AS clinic_total_ratings,
+      CAST(ISNULL(cr.average_rating, 0) AS DECIMAL(3, 1)) AS clinic_average_rating,
+      CAST(1 AS BIT) AS can_be_booked
+    FROM dbo.Staff s
+    JOIN dbo.Users u
+      ON u.user_id = s.user_id
+    JOIN dbo.Clinics c
+      ON c.clinic_id = s.clinic_id
+    OUTER APPLY (
+      SELECT
+        COUNT(*) AS total_bookings,
+        COUNT(DISTINCT b.patient_user_id) AS total_patients
+      FROM dbo.Bookings b
+      WHERE b.staff_id = s.staff_id
+        AND b.status = 'confirmed'
+    ) bs
+    OUTER APPLY (
+      SELECT
+        COUNT(*) AS total_ratings,
+        ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+      FROM dbo.Ratings r
+      WHERE r.clinic_id = c.clinic_id
+    ) cr
+    WHERE s.staff_id = ${staffId}
+      AND s.role_title = 'doctor'
+      AND s.is_verified = 1
+      AND u.is_active = 1
+      AND c.status = 'approved';
+  `;
+
+  if (!staff.recordset.length) {
+    return next(new AppError("Staff doctor not found or unavailable for booking", 404));
+  }
+
+  res.status(200).json({
+    status: "success",
+    staff: staff.recordset[0],
   });
 });

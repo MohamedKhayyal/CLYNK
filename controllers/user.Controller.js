@@ -111,7 +111,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   const data = { ...req.body };
 
   if (!data || Object.keys(data).length === 0) {
-    return next(new AppError("No data provided to update", 400));
+    return next(new AppError("No update data was provided", 400));
   }
 
   let photo;
@@ -137,7 +137,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
 
     full_name = normalize(full_name);
     if (full_name && !NAME_REGEX.test(full_name)) {
-      return next(new AppError("Invalid full_name", 400));
+      return next(new AppError("Invalid full_name value", 400));
     }
 
     updateQuery = sql.query`
@@ -172,7 +172,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
 
     full_name = normalize(full_name);
     if (full_name && !NAME_REGEX.test(full_name)) {
-      return next(new AppError("Invalid full_name", 400));
+      return next(new AppError("Invalid full_name value", 400));
     }
 
     if (work_from && !TIME_REGEX.test(work_from))
@@ -248,7 +248,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
 
     full_name = normalize(full_name);
     if (full_name && !NAME_REGEX.test(full_name)) {
-      return next(new AppError("Invalid full_name", 400));
+      return next(new AppError("Invalid full_name value", 400));
     }
 
     if (work_from && !TIME_REGEX.test(work_from))
@@ -265,7 +265,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     ) {
       return next(
         new AppError(
-          "Only staff doctors can update medical schedule or price",
+          "Only staff doctors can update schedule or consultation price",
           400,
         ),
       );
@@ -302,12 +302,12 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     full_name = normalize(full_name);
 
     if (full_name && !NAME_REGEX.test(full_name)) {
-      return next(new AppError("Invalid full_name", 400));
+      return next(new AppError("Invalid full_name value", 400));
     }
 
     if (!full_name && !data.photo) {
       return next(
-        new AppError("Admin can only update full_name or photo", 400),
+        new AppError("Admin can update only full_name or photo", 400),
       );
     }
 
@@ -325,7 +325,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       WHERE user_id = ${user_id};
     `;
   } else {
-    return next(new AppError("Profile update not allowed", 403));
+    return next(new AppError("Profile update is not allowed", 403));
   }
 
   const result = updateQuery.rowsAffected ? updateQuery : await updateQuery;
@@ -337,7 +337,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    message: "Profile updated successfully",
+    message: "تم تحديث الملف الشخصي بنجاح",
     photo,
     profile,
   });

@@ -140,7 +140,7 @@ exports.getDoctorProfile = catchAsync(async (req, res, next) => {
   `;
 
   if (!doctor.recordset.length) {
-    return next(new AppError("Doctor not found or not available for booking", 404));
+    return next(new AppError("Doctor not found or unavailable for booking", 404));
   }
 
   res.status(200).json({
@@ -224,5 +224,154 @@ exports.getDoctorDashboard = catchAsync(async (req, res, next) => {
       ratings,
       upcoming_bookings: upcomingBookings.recordset,
     },
+  });
+});
+
+exports.getBestDoctorsAndStaff = catchAsync(async (req, res) => {
+  const { specialist } = req.query;
+
+  const requestedLimit = Number(req.query.limit);
+  const limit =
+    Number.isInteger(requestedLimit) && requestedLimit > 0
+      ? Math.min(requestedLimit, 50)
+      : 20;
+
+  const request = new sql.Request();
+
+  let doctorSpecialistFilter = "";
+  let staffSpecialistFilter = "";
+
+  if (specialist) {
+    doctorSpecialistFilter = "AND d.specialist = @specialist";
+    staffSpecialistFilter = "AND s.specialist = @specialist";
+    request.input("specialist", sql.NVarChar, specialist);
+  }
+
+  const result = await request.query(`
+    SELECT TOP (${limit})
+      providers.provider_type,
+      providers.target_id,
+      providers.doctor_id,
+      providers.staff_id,
+      providers.full_name,
+      providers.specialist,
+      providers.work_days,
+      providers.work_from,
+      providers.work_to,
+      providers.consultation_price,
+      providers.location,
+      providers.photo,
+      providers.clinic_id,
+      providers.clinic_name,
+      providers.total_bookings,
+      providers.total_patients,
+      providers.total_ratings,
+      providers.average_rating,
+      providers.can_be_booked
+    FROM (
+      SELECT
+        'doctor' AS provider_type,
+        d.doctor_id AS target_id,
+        d.doctor_id,
+        CAST(NULL AS INT) AS staff_id,
+        d.full_name,
+        d.specialist,
+        d.work_days,
+        CONVERT(VARCHAR(5), d.work_from, 108) AS work_from,
+        CONVERT(VARCHAR(5), d.work_to, 108)   AS work_to,
+        d.consultation_price,
+        d.location,
+        u.photo,
+        CAST(NULL AS INT) AS clinic_id,
+        CAST(NULL AS NVARCHAR(150)) AS clinic_name,
+        ISNULL(bs.total_bookings, 0) AS total_bookings,
+        ISNULL(bs.total_patients, 0) AS total_patients,
+        ISNULL(rs.total_ratings, 0) AS total_ratings,
+        CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating,
+        CAST(1 AS BIT) AS can_be_booked
+      FROM dbo.Doctors d
+      JOIN dbo.Users u
+        ON u.user_id = d.user_id
+      LEFT JOIN dbo.Clinics c
+        ON c.owner_user_id = d.user_id
+       AND c.status = 'approved'
+      OUTER APPLY (
+        SELECT
+          COUNT(*) AS total_bookings,
+          COUNT(DISTINCT b.patient_user_id) AS total_patients
+        FROM dbo.Bookings b
+        WHERE b.doctor_id = d.doctor_id
+          AND b.status = 'confirmed'
+      ) bs
+      OUTER APPLY (
+        SELECT
+          COUNT(*) AS total_ratings,
+          ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+        FROM dbo.Ratings r
+        WHERE r.doctor_id = d.doctor_id
+      ) rs
+      WHERE d.is_verified = 1
+        AND u.is_active = 1
+        AND c.clinic_id IS NULL
+        ${doctorSpecialistFilter}
+
+      UNION ALL
+
+      SELECT
+        'staff' AS provider_type,
+        s.staff_id AS target_id,
+        CAST(NULL AS INT) AS doctor_id,
+        s.staff_id,
+        s.full_name,
+        s.specialist,
+        s.work_days,
+        CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
+        CONVERT(VARCHAR(5), s.work_to, 108)   AS work_to,
+        s.consultation_price,
+        c.location,
+        su.photo,
+        c.clinic_id,
+        c.name AS clinic_name,
+        ISNULL(bs.total_bookings, 0) AS total_bookings,
+        ISNULL(bs.total_patients, 0) AS total_patients,
+        ISNULL(cr.total_ratings, 0) AS total_ratings,
+        CAST(ISNULL(cr.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating,
+        CAST(1 AS BIT) AS can_be_booked
+      FROM dbo.Staff s
+      JOIN dbo.Users su
+        ON su.user_id = s.user_id
+      JOIN dbo.Clinics c
+        ON c.clinic_id = s.clinic_id
+      OUTER APPLY (
+        SELECT
+          COUNT(*) AS total_bookings,
+          COUNT(DISTINCT b.patient_user_id) AS total_patients
+        FROM dbo.Bookings b
+        WHERE b.staff_id = s.staff_id
+          AND b.status = 'confirmed'
+      ) bs
+      OUTER APPLY (
+        SELECT
+          COUNT(*) AS total_ratings,
+          ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+        FROM dbo.Ratings r
+        WHERE r.clinic_id = c.clinic_id
+      ) cr
+      WHERE s.role_title = 'doctor'
+        AND s.is_verified = 1
+        AND su.is_active = 1
+        AND c.status = 'approved'
+        ${staffSpecialistFilter}
+    ) providers
+    ORDER BY
+      providers.total_bookings DESC,
+      providers.average_rating DESC,
+      providers.full_name ASC;
+  `);
+
+  res.status(200).json({
+    status: "success",
+    results: result.recordset.length,
+    doctors: result.recordset,
   });
 });

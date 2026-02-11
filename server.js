@@ -4,7 +4,7 @@ const express = require("express");
 const cookieParser = require("cookie-parser");
 const { connectDB } = require("./config/db.Config");
 const corsHandler = require("./middlewares/cors.Handler");
-const logger = require("./utilts/logger");
+const auditLogger = require("./middlewares/audit.Logger");
 
 const AppError = require("./utilts/app.Error");
 const errorHandler = require("./middlewares/error.Handler");
@@ -22,8 +22,8 @@ const ratingRoute = require("./routes/rating.Route");
 const { globalLimiter } = require("./middlewares/rateLimiters");
 
 process.on("uncaughtException", (err) => {
-  logger.error("UNCAUGHT EXCEPTION! Shutting down...");
-  logger.error(err);
+  console.log("UNCAUGHT EXCEPTION! Shutting down...");
+  console.log(err);
   process.exit(1);
 });
 
@@ -36,6 +36,7 @@ app.use(globalLimiter);
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 app.use(cookieParser());
+app.use(auditLogger);
 
 connectDB();
 
@@ -50,17 +51,17 @@ app.use("/api/admin", adminRoute);
 app.use("/api/ratings", ratingRoute);
 
 app.use((req, res, next) => {
-  next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));
+  next(new AppError(`Cannot find ${req.originalUrl} on this server`, 404));
 });
 
 app.use(errorHandler);
 
 const server = app.listen(PORT, () => {
-  logger.info(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
 process.on("unhandledRejection", (err) => {
-  logger.error("UNHANDLED REJECTION! Shutting down...");
-  logger.error(err);
+  console.log("UNHANDLED REJECTION! Shutting down...");
+  console.log(err);
   server.close(() => process.exit(1));
 });

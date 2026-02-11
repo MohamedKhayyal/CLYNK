@@ -6,10 +6,13 @@ const {
   getMyClinicStaff,
   verifyStaff,
   getPendingStaff,
+  getStaffProfile,
 } = require("../controllers/staff.Controller");
 
 const { protect, restrictTo } = require("../middlewares/auth");
 const { isClinicOwner } = require("../middlewares/isClinicOwner");
+
+router.get("/:id/profile", getStaffProfile);
 
 router.use(protect, restrictTo("doctor"), isClinicOwner);
 router.post("/create", createStaffForClinic);

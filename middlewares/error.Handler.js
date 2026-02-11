@@ -2,7 +2,7 @@ const STATUS_CODES = require("../utilts/response.Codes");
 const responsesStatus = require("../utilts/response.Status");
 const AppError = require("../utilts/app.Error");
 const ERROR_CODES = require("../utilts/error.Codes");
-const logger = require("../utilts/logger");
+const { logAuditEvent, sanitizeAuditBody } = require("../utilts/audit.Logger");
 
 const globalErrorHandler = (err, req, res, next) => {
   err.statusCode = err.statusCode || STATUS_CODES.INTERNAL_SERVER_ERROR;
@@ -10,11 +10,11 @@ const globalErrorHandler = (err, req, res, next) => {
   err.errorCode = err.errorCode || ERROR_CODES.SERVER_ERROR;
 
   if (err.name === "CastError") {
-    const message = `Invalid ${err.path}: ${err.value}.`;
+    const message = `Invalid value in ${err.path}: ${err.value}.`;
     err = new AppError(
       message,
       STATUS_CODES.BAD_REQUEST,
-      ERROR_CODES.CAST_ERROR
+      ERROR_CODES.CAST_ERROR,
     );
   }
 
@@ -24,7 +24,7 @@ const globalErrorHandler = (err, req, res, next) => {
     err = new AppError(
       message,
       STATUS_CODES.BAD_REQUEST,
-      ERROR_CODES.DUPLICATE_KEY
+      ERROR_CODES.DUPLICATE_KEY,
     );
   }
 
@@ -41,23 +41,23 @@ const globalErrorHandler = (err, req, res, next) => {
       message,
       STATUS_CODES.BAD_REQUEST,
       ERROR_CODES.VALIDATION_ERROR,
-      details
+      details,
     );
   }
 
   if (err.name === "JsonWebTokenError") {
     err = new AppError(
-      "Invalid token. Please log in again!",
+      "Invalid token. Please log in again.",
       STATUS_CODES.UNAUTHORIZED,
-      ERROR_CODES.JWT_INVALID
+      ERROR_CODES.JWT_INVALID,
     );
   }
 
   if (err.name === "TokenExpiredError") {
     err = new AppError(
-      "Your token has expired! Please log in again.",
+      "Token has expired. Please log in again.",
       STATUS_CODES.UNAUTHORIZED,
-      ERROR_CODES.JWT_EXPIRED
+      ERROR_CODES.JWT_EXPIRED,
     );
   }
 
@@ -65,14 +65,29 @@ const globalErrorHandler = (err, req, res, next) => {
     err = new AppError(
       err.message || "File upload error",
       STATUS_CODES.BAD_REQUEST,
-      ERROR_CODES.UPLOAD_ERROR
+      ERROR_CODES.UPLOAD_ERROR,
     );
   }
-  logger.error(`${req.method} ${req.originalUrl} | ${err.message}`);
 
   if (err.stack) {
-    logger.error(err.stack);
+    console.log(err.stack);
   }
+
+  logAuditEvent({
+    level: "error",
+    event_type: "http_error",
+    action: `${req.method} ${req.originalUrl}`,
+    method: req.method,
+    path: req.originalUrl,
+    status_code: err.statusCode,
+    actor_user_id: req.user?.user_id || null,
+    actor_role: req.user?.user_type || "guest",
+    ip: req.ip,
+    user_agent: req.get("user-agent") || null,
+    error_message: err.message,
+    error_code: err.errorCode || ERROR_CODES.SERVER_ERROR,
+    error_details: sanitizeAuditBody(err.details || null),
+  });
 
   const responsePayload = {
     success: false,

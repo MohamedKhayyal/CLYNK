@@ -40,7 +40,7 @@ exports.signup = catchAsync(async (req, res, next) => {
     SELECT user_id FROM dbo.Users WHERE email = ${email};
   `;
   if (exists.recordset.length) {
-    return next(new AppError("Email already exists", 409));
+    return next(new AppError("Email is already in use", 409));
   }
 
   const hashedPassword = await bcrypt.hash(password, 12);
@@ -99,8 +99,8 @@ exports.signup = catchAsync(async (req, res, next) => {
       for (const admin of admins.recordset) {
         await createNotification({
           user_id: admin.user_id,
-          title: "Doctor Verification Request",
-          message: `A new doctor account for "${full_name}" is awaiting verification.`,
+          title: "طلب توثيق طبيب",
+          message: `يوجد حساب طبيب جديد باسم "${full_name}" بانتظار التوثيق.`,
         });
       }
     }
@@ -144,8 +144,8 @@ exports.signup = catchAsync(async (req, res, next) => {
 
       await createNotification({
         user_id: clinic.owner_user_id,
-        title: "Staff Verification Request",
-        message: `A new staff account for "${full_name}" is awaiting verification.`,
+        title: "طلب توثيق موظف",
+        message: `يوجد حساب موظف جديد باسم "${full_name}" بانتظار التوثيق.`,
       });
     }
 
@@ -187,7 +187,7 @@ exports.login = catchAsync(async (req, res, next) => {
   ).recordset[0];
 
   if (!user || !(await bcrypt.compare(password, user.password))) {
-    return next(new AppError("Invalid email or password", 401));
+    return next(new AppError("Incorrect email or password", 401));
   }
 
   let profile = null;
@@ -270,7 +270,7 @@ exports.login = catchAsync(async (req, res, next) => {
 
 exports.refreshToken = catchAsync(async (req, res, next) => {
   const token = req.cookies.refresh_token;
-  if (!token) return next(new AppError("Refresh token missing", 401));
+  if (!token) return next(new AppError("Refresh token is missing", 401));
 
   const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
 
@@ -300,6 +300,6 @@ exports.logout = (req, res) => {
 
   res.status(200).json({
     status: "success",
-    message: "Logged out successfully",
+    message: "تم تسجيل الخروج بنجاح",
   });
 };

@@ -1,5 +1,6 @@
 const express = require("express");
 const adminController = require("../controllers/admin.Controller");
+const auditController = require("../controllers/audit.Controller");
 const auth = require("../middlewares/auth");
 
 const router = express.Router();
@@ -17,5 +18,6 @@ router.patch("/:id/unverify", adminController.unverifyDoctor);
 
 router.get("/doctors", adminController.getAllDoctors);
 router.get("/staff", adminController.getAllStaff);
+router.get("/audit-logs", auditController.listAuditLogs);
 
 module.exports = router;

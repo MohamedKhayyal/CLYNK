@@ -9,7 +9,7 @@ exports.createBooking = catchAsync(async (req, res, next) => {
   const patient_user_id = req.user.user_id;
 
   if ((!doctor_id && !staff_id) || (doctor_id && staff_id)) {
-    return next(new AppError("Booking must be for doctor OR staff only", 400));
+    return next(new AppError("Booking must target either a doctor or a staff member", 400));
   }
 
   if (!booking_date || !booking_from) {
@@ -19,7 +19,7 @@ exports.createBooking = catchAsync(async (req, res, next) => {
   }
 
   if (!/^\d{2}:\d{2}$/.test(booking_from)) {
-    return next(new AppError("booking_from must be HH:mm", 400));
+    return next(new AppError("booking_from must be in HH:mm format", 400));
   }
 
   const start = new Date(`${booking_date}T${booking_from}:00`);
@@ -53,7 +53,7 @@ exports.createBooking = catchAsync(async (req, res, next) => {
     ).recordset[0];
 
     if (!target) {
-      return next(new AppError("Doctor not available", 404));
+      return next(new AppError("Doctor is not available", 404));
     }
 
     if (target.clinic_id) {
@@ -83,7 +83,7 @@ exports.createBooking = catchAsync(async (req, res, next) => {
     ).recordset[0];
 
     if (!target) {
-      return next(new AppError("Doctor not available", 404));
+      return next(new AppError("Doctor is not available", 404));
     }
   }
 
@@ -142,8 +142,8 @@ exports.createBooking = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: target.user_id,
-    title: "New Booking Received",
-    message: `A booking has been scheduled on ${booking_date} from ${booking_from} to ${booking_to}.`,
+    title: "تم استلام حجز جديد",
+    message: `تم جدولة حجز بتاريخ ${booking_date} من ${booking_from} إلى ${booking_to}.`,
   });
 
   res.status(201).json({
@@ -347,7 +347,7 @@ exports.getAvailableSlots = catchAsync(async (req, res, next) => {
     ).recordset[0];
   }
 
-  if (!target) return next(new AppError("Doctor not available", 404));
+  if (!target) return next(new AppError("Doctor is not available", 404));
 
   if (doctor_id && target.clinic_id) {
     return next(
@@ -426,7 +426,7 @@ exports.cancelBooking = catchAsync(async (req, res, next) => {
   }
 
   if (booking.status === "cancelled") {
-    return next(new AppError("Booking already cancelled", 400));
+    return next(new AppError("Booking is already cancelled", 400));
   }
 
   let authorized = false;
@@ -472,13 +472,13 @@ exports.cancelBooking = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: booking.patient_user_id,
-    title: "Booking Cancelled",
-    message: "Your booking has been cancelled.",
+    title: "تم إلغاء الحجز",
+    message: "تم إلغاء حجزك.",
   });
 
   res.status(200).json({
     status: "success",
-    message: "Booking cancelled successfully",
+    message: "تم إلغاء الحجز بنجاح",
   });
 });
 
@@ -513,7 +513,7 @@ exports.cancelClinicBooking = catchAsync(async (req, res, next) => {
   }
 
   if (booking.status === "cancelled") {
-    return next(new AppError("Booking already cancelled", 400));
+    return next(new AppError("Booking is already cancelled", 400));
   }
 
   await sql.query`
@@ -524,12 +524,12 @@ exports.cancelClinicBooking = catchAsync(async (req, res, next) => {
 
   await createNotification({
     user_id: booking.patient_user_id,
-    title: "Booking Cancelled",
-    message: "Your booking has been cancelled by the clinic.",
+    title: "تم إلغاء الحجز",
+    message: "تم إلغاء حجزك من قبل العيادة.",
   });
 
   res.status(200).json({
     status: "success",
-    message: "Booking cancelled successfully",
+    message: "تم إلغاء الحجز بنجاح",
   });
 });
