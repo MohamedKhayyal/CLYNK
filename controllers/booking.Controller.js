@@ -125,10 +125,32 @@ exports.createBooking = catchAsync(async (req, res, next) => {
     return next(new AppError("This time slot is already booked", 409));
   }
 
+  const savedPermission = doctor_id
+    ? await sql.query`
+        SELECT TOP 1 permission_id
+        FROM dbo.PrescriptionPermissions
+        WHERE patient_user_id = ${patient_user_id}
+          AND doctor_id = ${doctor_id}
+          AND status = 'accepted';
+      `
+    : await sql.query`
+        SELECT TOP 1 permission_id
+        FROM dbo.PrescriptionPermissions
+        WHERE patient_user_id = ${patient_user_id}
+          AND staff_id = ${staff_id}
+          AND status = 'accepted';
+      `;
+
+  const prescriptionAccessStatus = savedPermission.recordset.length
+    ? "accepted"
+    : "not_requested";
+
   const result = await sql.query`
     INSERT INTO dbo.Bookings
       (patient_user_id, doctor_id, staff_id,
-       booking_date, booking_from, booking_to)
+       booking_date, booking_from, booking_to,
+       prescription_access_status,
+       prescription_access_responded_at)
     OUTPUT INSERTED.booking_id
     VALUES (
       ${patient_user_id},
@@ -136,7 +158,9 @@ exports.createBooking = catchAsync(async (req, res, next) => {
       ${staff_id || null},
       ${booking_date},
       ${booking_from},
-      ${booking_to}
+      ${booking_to},
+      ${prescriptionAccessStatus},
+      ${prescriptionAccessStatus === "accepted" ? new Date() : null}
     );
   `;
 
@@ -149,6 +173,7 @@ exports.createBooking = catchAsync(async (req, res, next) => {
   res.status(201).json({
     status: "success",
     booking_id: result.recordset[0].booking_id,
+    prescription_access_status: prescriptionAccessStatus,
   });
 });
 
@@ -210,6 +235,9 @@ exports.getMyBookings = catchAsync(async (req, res, next) => {
       CONVERT(VARCHAR(5), b.booking_from,108) AS booking_from,
       CONVERT(VARCHAR(5), b.booking_to,108)   AS booking_to,
       b.status,
+      b.prescription_access_status,
+      b.prescription_access_requested_at,
+      b.prescription_access_responded_at,
 
       p.full_name AS patient_name,
       p.phone     AS patient_phone,
@@ -262,6 +290,9 @@ exports.getClinicBookings = catchAsync(async (req, res, next) => {
       CONVERT(VARCHAR(5), b.booking_from, 108) AS booking_from,
       CONVERT(VARCHAR(5), b.booking_to, 108)   AS booking_to,
       b.status,
+      b.prescription_access_status,
+      b.prescription_access_requested_at,
+      b.prescription_access_responded_at,
 
       p.full_name AS patient_name,
       p.phone     AS patient_phone,

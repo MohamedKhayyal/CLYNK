@@ -57,14 +57,14 @@ exports.signup = catchAsync(async (req, res, next) => {
     const user = userResult.recordset[0];
 
     if (user_type === "patient") {
-      const { full_name, date_of_birth, gender, phone, blood_type } = profile;
+      const { full_name, date_of_birth, gender, phone } = profile;
 
       await transaction.request().query`
         INSERT INTO dbo.Patients
-        (user_id, full_name, date_of_birth, gender, phone, blood_type)
+        (user_id, full_name, date_of_birth, gender, phone, )
         VALUES
         (${user.user_id}, ${full_name}, ${date_of_birth || null},
-         ${gender || null}, ${phone || null}, ${blood_type || null});
+         ${gender || null}, ${phone || null}, || null});
       `;
     }
     if (user_type === "doctor") {
@@ -195,7 +195,7 @@ exports.login = catchAsync(async (req, res, next) => {
   if (user.user_type === "patient") {
     profile = (
       await sql.query`
-        SELECT full_name, date_of_birth, gender, phone, blood_type
+        SELECT full_name, date_of_birth, gender, phone
         FROM dbo.Patients WHERE user_id = ${user.user_id};
       `
     ).recordset[0];

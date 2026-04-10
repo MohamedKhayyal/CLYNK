@@ -111,8 +111,6 @@ CREATE TABLE dbo.Patients (
     date_of_birth DATE,
     gender VARCHAR(10),
     phone VARCHAR(20),
-    blood_type VARCHAR(5),
-
     CONSTRAINT FK_Patients_Users
         FOREIGN KEY (user_id)
         REFERENCES dbo.Users(user_id)
@@ -198,6 +196,16 @@ CREATE TABLE dbo.Bookings (
     status VARCHAR(20) NOT NULL DEFAULT 'confirmed'
         CHECK (status IN ('confirmed', 'cancelled')),
 
+    prescription_access_status VARCHAR(20) NOT NULL DEFAULT 'not_requested'
+        CHECK (prescription_access_status IN (
+            'not_requested',
+            'pending',
+            'accepted',
+            'rejected'
+        )),
+    prescription_access_requested_at DATETIME2 NULL,
+    prescription_access_responded_at DATETIME2 NULL,
+
     created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
 
     CONSTRAINT FK_Bookings_Patient
@@ -236,4 +244,120 @@ CREATE TABLE dbo.Notifications (
         REFERENCES dbo.Users(user_id)
         ON DELETE CASCADE
 );
+GO
+
+ALTER TABLE dbo.Patients
+DROP COLUMN blood_type;
+GO
+
+ALTER TABLE dbo.Clinics
+ADD geo_location GEOGRAPHY NULL;
+GO
+
+ALTER TABLE dbo.Doctors
+ADD geo_location GEOGRAPHY NULL;
+GO
+
+
+CREATE TABLE dbo.Prescriptions (
+    prescription_id INT IDENTITY(1,1) PRIMARY KEY,
+
+    booking_id INT NOT NULL,
+    patient_id INT NOT NULL,
+    doctor_id INT NULL,
+    staff_id INT NULL,
+
+    patient_age INT NULL,
+
+    doctor_name NVARCHAR(150) NULL,
+    specialty NVARCHAR(100) NULL,
+    doctor_emergency_contact VARCHAR(20) NULL,
+
+    visit_date DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+    symptoms NVARCHAR(500) NULL,
+    diagnosis NVARCHAR(500) NULL,
+
+    medication_name NVARCHAR(150) NULL,
+    dose NVARCHAR(100) NULL,
+    duration NVARCHAR(100) NULL,
+
+    test_name NVARCHAR(150) NULL,
+    test_result NVARCHAR(500) NULL,
+    test_date DATE NULL,
+
+    notes NVARCHAR(500) NULL,
+
+    created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+
+    CONSTRAINT FK_Prescriptions_Booking
+        FOREIGN KEY (booking_id)
+        REFERENCES dbo.Bookings(booking_id),
+
+    CONSTRAINT FK_Prescriptions_Patient
+        FOREIGN KEY (patient_id)
+        REFERENCES dbo.Patients(patient_id),
+
+    CONSTRAINT FK_Prescriptions_Doctor
+        FOREIGN KEY (doctor_id)
+        REFERENCES dbo.Doctors(doctor_id),
+
+    CONSTRAINT FK_Prescriptions_Staff
+        FOREIGN KEY (staff_id)
+        REFERENCES dbo.Staff(staff_id),
+
+    CONSTRAINT CK_Prescriptions_Prescriber
+        CHECK (
+            (doctor_id IS NOT NULL AND staff_id IS NULL)
+            OR
+            (doctor_id IS NULL AND staff_id IS NOT NULL)
+        )
+);
+GO
+
+CREATE UNIQUE INDEX UX_Prescriptions_Booking
+ON dbo.Prescriptions(booking_id);
+GO
+
+CREATE TABLE dbo.PrescriptionPermissions (
+    permission_id INT IDENTITY(1,1) PRIMARY KEY,
+
+    patient_user_id INT NOT NULL,
+    doctor_id INT NULL,
+    staff_id INT NULL,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'accepted'
+        CHECK (status IN ('accepted', 'revoked')),
+
+    accepted_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+    updated_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+
+    CONSTRAINT FK_PrescriptionPermissions_Patient
+        FOREIGN KEY (patient_user_id)
+        REFERENCES dbo.Users(user_id),
+
+    CONSTRAINT FK_PrescriptionPermissions_Doctor
+        FOREIGN KEY (doctor_id)
+        REFERENCES dbo.Doctors(doctor_id),
+
+    CONSTRAINT FK_PrescriptionPermissions_Staff
+        FOREIGN KEY (staff_id)
+        REFERENCES dbo.Staff(staff_id),
+
+    CONSTRAINT CK_PrescriptionPermissions_Target
+        CHECK (
+            (doctor_id IS NOT NULL AND staff_id IS NULL)
+            OR
+            (doctor_id IS NULL AND staff_id IS NOT NULL)
+        )
+);
+GO
+
+CREATE UNIQUE INDEX UX_PrescriptionPermissions_PatientDoctor
+ON dbo.PrescriptionPermissions(patient_user_id, doctor_id)
+WHERE doctor_id IS NOT NULL;
+GO
+
+CREATE UNIQUE INDEX UX_PrescriptionPermissions_PatientStaff
+ON dbo.PrescriptionPermissions(patient_user_id, staff_id)
+WHERE staff_id IS NOT NULL;
 GO

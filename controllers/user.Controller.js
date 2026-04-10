@@ -33,7 +33,7 @@ exports.getMe = catchAsync(async (req, res, next) => {
   if (user_type === "patient") {
     profile = (
       await sql.query`
-        SELECT full_name, date_of_birth, gender, phone, blood_type
+        SELECT full_name, date_of_birth, gender, phone
         FROM dbo.Patients
         WHERE user_id = ${user_id};
       `
@@ -133,7 +133,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   let selectQuery;
 
   if (user_type === "patient") {
-    let { full_name, date_of_birth, gender, phone, blood_type } = data;
+    let { full_name, date_of_birth, gender, phone } = data;
 
     full_name = normalize(full_name);
     if (full_name && !NAME_REGEX.test(full_name)) {
@@ -146,13 +146,12 @@ exports.updateMe = catchAsync(async (req, res, next) => {
         full_name     = COALESCE(CAST(${full_name} AS NVARCHAR(150)), full_name),
         date_of_birth = COALESCE(${normalize(date_of_birth)}, date_of_birth),
         gender        = COALESCE(${normalize(gender)}, gender),
-        phone         = COALESCE(${normalize(phone)}, phone),
-        blood_type    = COALESCE(${normalize(blood_type)}, blood_type)
+        phone         = COALESCE(${normalize(phone)}, phone)
       WHERE user_id = ${user_id};
     `;
 
     selectQuery = sql.query`
-      SELECT full_name, date_of_birth, gender, phone, blood_type
+      SELECT full_name, date_of_birth, gender, phone
       FROM dbo.Patients
       WHERE user_id = ${user_id};
     `;
