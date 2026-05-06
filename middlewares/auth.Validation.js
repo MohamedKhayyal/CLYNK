@@ -77,7 +77,7 @@ exports.signupValidation = (req, res, next) => {
   if (user_type === "staff") {
     const {
       full_name,
-      clinic_id,
+      name,
       role_title,
       specialist,
       work_days,
@@ -86,10 +86,10 @@ exports.signupValidation = (req, res, next) => {
       consultation_price,
     } = profile;
 
-    if (!full_name || !clinic_id || !role_title) {
+    if (!full_name || !name || !role_title) {
       return next(
         new AppError(
-          "Staff fields full_name, clinic_id, and role_title are required",
+          "Staff fields full_name, name, and role_title are required",
           400,
         ),
       );
@@ -99,10 +99,9 @@ exports.signupValidation = (req, res, next) => {
       return next(new AppError("Invalid staff role_title value", 400));
     }
 
-    if (!Number.isInteger(Number(clinic_id)) || Number(clinic_id) <= 0) {
-      return next(
-        new AppError("clinic_id must be a positive integer", 400),
-      );
+    // validate clinic name
+    if (typeof name !== "string" || !name.trim()) {
+      return next(new AppError("Clinic name is required", 400));
     }
 
     if (role_title === "doctor") {
@@ -123,7 +122,9 @@ exports.signupValidation = (req, res, next) => {
       }
 
       if (!TIME_REGEX.test(work_from) || !TIME_REGEX.test(work_to)) {
-        return next(new AppError("Invalid staff doctor working time format", 400));
+        return next(
+          new AppError("Invalid staff doctor working time format", 400),
+        );
       }
 
       if (

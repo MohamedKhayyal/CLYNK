@@ -73,7 +73,10 @@ const sendDoctorPendingVerificationEmail = async ({ email, profile }) => {
       name: profile?.full_name || email,
     }).sendDoctorPendingVerification();
   } catch (err) {
-    console.error("Failed to send doctor pending verification email:", err.message);
+    console.error(
+      "Failed to send doctor pending verification email:",
+      err.message,
+    );
   }
 };
 
@@ -141,7 +144,10 @@ exports.signup = catchAsync(async (req, res, next) => {
         location,
         geo_location,
       } = profile;
-      const doctorGeoLocation = normalizeGeoLocation(geo_location, "profile.geo_location");
+      const doctorGeoLocation = normalizeGeoLocation(
+        geo_location,
+        "profile.geo_location",
+      );
 
       if (doctorGeoLocation) {
         await transaction.request().query`
@@ -184,7 +190,7 @@ exports.signup = catchAsync(async (req, res, next) => {
     if (user_type === "staff") {
       const {
         full_name,
-        clinic_id,
+        name,
         role_title,
         specialist,
         work_days,
@@ -193,31 +199,51 @@ exports.signup = catchAsync(async (req, res, next) => {
         consultation_price,
       } = profile;
 
+      // Find clinic using clinic name
       const clinic = (
         await transaction.request().query`
-          SELECT clinic_id, owner_user_id
-          FROM dbo.Clinics
-          WHERE clinic_id = ${clinic_id} AND status = 'approved';
-        `
+      SELECT clinic_id, name, owner_user_id
+      FROM dbo.Clinics
+      WHERE name = ${name}
+      AND status = 'approved';
+    `
       ).recordset[0];
 
       if (!clinic) {
         throw new AppError("Clinic not found or not approved", 400);
       }
 
+      // Insert staff
       await transaction.request().query`
-        INSERT INTO dbo.Staff
-        (user_id, clinic_id, full_name, role_title, specialist,
-         work_days, work_from, work_to, consultation_price, is_verified)
-        VALUES
-        (${user.user_id}, ${clinic_id}, ${full_name}, ${role_title},
-         ${role_title === "doctor" ? specialist : null},
-         ${role_title === "doctor" ? work_days : null},
-         ${role_title === "doctor" ? work_from : null},
-         ${role_title === "doctor" ? work_to : null},
-         ${role_title === "doctor" ? consultation_price : null},
-         0);
-      `;
+    INSERT INTO dbo.Staff
+    (
+      user_id,
+      clinic_id,
+      full_name,
+      role_title,
+      specialist,
+      work_days,
+      work_from,
+      work_to,
+      consultation_price,
+      is_verified
+    )
+    VALUES
+    (
+      ${user.user_id},
+      ${clinic.clinic_id},
+      ${full_name},
+      ${role_title},
+      ${role_title === "doctor" ? specialist : null},
+      ${role_title === "doctor" ? work_days : null},
+      ${role_title === "doctor" ? work_from : null},
+      ${role_title === "doctor" ? work_to : null},
+      ${role_title === "doctor" ? consultation_price : null},
+      0
+    );
+  `;
+
+      user.clinic_name = clinic.name;
 
       await createNotification({
         user_id: clinic.owner_user_id,
@@ -232,7 +258,10 @@ exports.signup = catchAsync(async (req, res, next) => {
       try {
         await transaction.rollback();
       } catch (rollbackErr) {
-        console.error("Failed to roll back signup transaction:", rollbackErr.message);
+        console.error(
+          "Failed to roll back signup transaction:",
+          rollbackErr.message,
+        );
       }
     }
     return next(err);
@@ -260,6 +289,7 @@ exports.signup = catchAsync(async (req, res, next) => {
       user_id: user.user_id,
       email,
       role: user.user_type,
+      clinic_name: user.user_type === "staff" ? user.clinic_name : undefined,
     },
   });
 });
@@ -468,7 +498,10 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
     `;
 
     return next(
-      new AppError("Could not send password reset email. Please try again later.", 500),
+      new AppError(
+        "Could not send password reset email. Please try again later.",
+        500,
+      ),
     );
   }
 
@@ -494,7 +527,9 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
   ).recordset[0];
 
   if (!user) {
-    return next(new AppError("Password reset token is invalid or has expired", 400));
+    return next(
+      new AppError("Password reset token is invalid or has expired", 400),
+    );
   }
 
   const hashedPassword = await bcrypt.hash(password, 12);
@@ -512,7 +547,8 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    message: "Password has been reset successfully. Please log in with your new password.",
+    message:
+      "Password has been reset successfully. Please log in with your new password.",
   });
 });
 
