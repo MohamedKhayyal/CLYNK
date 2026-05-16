@@ -18,4 +18,14 @@ router.patch(
   userController.updateMe,
 );
 
+router.get(
+  "/doctors-staff",
+  userController.getAllDoctorsAndStaff
+);
+
+router.get(
+  "/patients",
+  userController.getAllPatients
+);
+
 module.exports = router;

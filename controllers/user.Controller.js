@@ -496,3 +496,70 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     profile,
   });
 });
+
+exports.getAllDoctorsAndStaff = catchAsync(async (req, res) => {
+  const doctors = await sql.query(`
+      SELECT
+          d.doctor_id AS id,
+          d.full_name,
+          'doctor' AS type,
+          d.specialist,
+          d.consultation_price,
+          d.years_of_experience,
+          d.work_days,
+          CONVERT(VARCHAR(5), d.work_from,108) AS work_from,
+          CONVERT(VARCHAR(5), d.work_to,108) AS work_to,
+          d.is_verified,
+          u.email,
+          u.photo
+      FROM Doctors d
+      JOIN Users u
+          ON d.user_id = u.user_id
+      WHERE d.is_verified = 1
+  `);
+
+  const staff = await sql.query(`
+      SELECT
+          s.staff_id AS id,
+          s.full_name,
+          'staff' AS type,
+          s.role_title,
+          s.specialist,
+          s.consultation_price,
+          s.work_days,
+          CONVERT(VARCHAR(5), s.work_from,108) AS work_from,
+          CONVERT(VARCHAR(5), s.work_to,108) AS work_to,
+          s.is_verified,
+          c.name AS clinic_name,
+          u.email,
+          u.photo
+      FROM Staff s
+      JOIN Users u
+          ON s.user_id = u.user_id
+      LEFT JOIN Clinics c
+          ON s.clinic_id = c.clinic_id
+      WHERE s.is_verified = 1
+  `);
+
+  const all = [
+    ...doctors.recordset,
+    ...staff.recordset
+  ];
+
+  res.status(200).json({
+    status: "success",
+    results: all.length,
+  });
+});
+
+exports.getAllPatients = catchAsync(async (req, res) => {
+  const patients = await sql.query(`
+      SELECT *
+      FROM Patients
+  `);
+
+  res.status(200).json({
+    status: "success",
+    results: patients.recordset.length,
+  });
+});
