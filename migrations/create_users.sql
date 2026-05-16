@@ -370,3 +370,20 @@ CREATE UNIQUE INDEX UX_PrescriptionPermissions_PatientStaff
 ON dbo.PrescriptionPermissions(patient_user_id, staff_id)
 WHERE staff_id IS NOT NULL;
 GO
+
+
+
+ALTER TABLE Doctors
+ADD CONSTRAINT CK_Doctor_Gender
+CHECK (gender IN ('male', 'female'));
+GO
+
+ALTER TABLE Patients
+ADD CONSTRAINT CK_Patients_Gender
+CHECK (gender IN ('male', 'female'));
+GO
+
+ALTER TABLE Staff
+ADD gender NVARCHAR(10)
+CHECK (gender IN ('male', 'female'));
+GO
