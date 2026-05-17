@@ -234,135 +234,175 @@ exports.getBestDoctorsAndStaff = catchAsync(async (req, res) => {
 
   const request = new sql.Request();
 
-  let doctorSpecialistFilter = "";
-  let staffSpecialistFilter = "";
+  let doctorFilter = "";
+  let staffFilter = "";
 
   if (specialist) {
-    doctorSpecialistFilter = "AND d.specialist = @specialist";
-    staffSpecialistFilter = "AND s.specialist = @specialist";
+    doctorFilter = "AND d.specialist = @specialist";
+    staffFilter = "AND s.specialist = @specialist";
+
     request.input("specialist", sql.NVarChar, specialist);
   }
 
   const result = await request.query(`
     SELECT TOP (${limit})
-      providers.provider_type,
-      providers.target_id,
-      providers.doctor_id,
-      providers.staff_id,
-      providers.full_name,
-      providers.specialist,
-      providers.work_days,
-      providers.work_from,
-      providers.work_to,
-      providers.consultation_price,
-      providers.location,
-      providers.photo,
-      providers.clinic_id,
-      providers.clinic_name,
-      providers.total_bookings,
-      providers.total_patients,
-      providers.total_ratings,
-      providers.average_rating,
-      providers.can_be_booked
+      provider_type,
+      target_id,
+      doctor_id,
+      staff_id,
+      full_name,
+      specialist,
+      work_days,
+      work_from,
+      work_to,
+      consultation_price,
+      location,
+      photo,
+      clinic_id,
+      clinic_name,
+      total_bookings,
+      total_patients,
+      total_ratings,
+      average_rating,
+      can_be_booked,
+      geo_location_latitude,
+      geo_location_longitude
     FROM (
+
+      ------------------ Doctors ------------------
       SELECT
         'doctor' AS provider_type,
         d.doctor_id AS target_id,
         d.doctor_id,
-        CAST(NULL AS INT) AS staff_id,
+        NULL AS staff_id,
         d.full_name,
         d.specialist,
         d.work_days,
-        CONVERT(VARCHAR(5), d.work_from, 108) AS work_from,
-        CONVERT(VARCHAR(5), d.work_to, 108)   AS work_to,
+        CONVERT(VARCHAR(5), d.work_from,108) AS work_from,
+        CONVERT(VARCHAR(5), d.work_to,108) AS work_to,
         d.consultation_price,
         d.location,
+        u.photo,
+
+        NULL AS clinic_id,
+        NULL AS clinic_name,
+
         d.geo_location.Lat AS geo_location_latitude,
         d.geo_location.Long AS geo_location_longitude,
-        u.photo,
-        CAST(NULL AS INT) AS clinic_id,
-        CAST(NULL AS NVARCHAR(150)) AS clinic_name,
-        ISNULL(bs.total_bookings, 0) AS total_bookings,
-        ISNULL(bs.total_patients, 0) AS total_patients,
-        ISNULL(rs.total_ratings, 0) AS total_ratings,
-        CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating,
-        CAST(1 AS BIT) AS can_be_booked
-      FROM dbo.Doctors d
-      JOIN dbo.Users u
-        ON u.user_id = d.user_id
-      OUTER APPLY (
-        SELECT
-          COUNT(*) AS total_bookings,
-          COUNT(DISTINCT b.patient_user_id) AS total_patients
-        FROM dbo.Bookings b
-        WHERE b.doctor_id = d.doctor_id
-          AND b.status = 'confirmed'
+
+        ISNULL(bs.total_bookings,0) total_bookings,
+        ISNULL(bs.total_patients,0) total_patients,
+
+        ISNULL(rs.total_ratings,0) total_ratings,
+        CAST(ISNULL(rs.average_rating,0) AS DECIMAL(3,1))
+          average_rating,
+
+        CAST(1 AS BIT) can_be_booked
+
+      FROM Doctors d
+      JOIN Users u
+      ON u.user_id=d.user_id
+
+      OUTER APPLY(
+          SELECT
+            COUNT(*) total_bookings,
+            COUNT(DISTINCT patient_user_id) total_patients
+          FROM Bookings
+          WHERE doctor_id=d.doctor_id
+          AND status='confirmed'
       ) bs
-      OUTER APPLY (
-        SELECT
-          COUNT(*) AS total_ratings,
-          ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
-        FROM dbo.Ratings r
-        WHERE r.doctor_id = d.doctor_id
+
+      OUTER APPLY(
+          SELECT
+            COUNT(*) total_ratings,
+            ROUND(AVG(CAST(rating AS FLOAT)),1)
+            average_rating
+          FROM Ratings
+          WHERE doctor_id=d.doctor_id
       ) rs
-      WHERE d.is_verified = 1
-        AND u.is_active = 1
-        ${doctorSpecialistFilter}
+
+      WHERE
+        d.is_verified=1
+        AND u.is_active=1
+        ${doctorFilter}
 
       UNION ALL
 
       SELECT
-        'staff' AS provider_type,
-        s.staff_id AS target_id,
-        CAST(NULL AS INT) AS doctor_id,
+        'staff',
+        s.staff_id,
+        NULL,
         s.staff_id,
         s.full_name,
         s.specialist,
         s.work_days,
-        CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
-        CONVERT(VARCHAR(5), s.work_to, 108)   AS work_to,
+
+        CONVERT(VARCHAR(5),s.work_from,108),
+        CONVERT(VARCHAR(5),s.work_to,108),
+
         s.consultation_price,
         c.location,
-        c.geo_location.Lat AS geo_location_latitude,
-        c.geo_location.Long AS geo_location_longitude,
         su.photo,
+
         c.clinic_id,
-        c.name AS clinic_name,
-        ISNULL(bs.total_bookings, 0) AS total_bookings,
-        ISNULL(bs.total_patients, 0) AS total_patients,
-        ISNULL(cr.total_ratings, 0) AS total_ratings,
-        CAST(ISNULL(cr.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating,
-        CAST(1 AS BIT) AS can_be_booked
-      FROM dbo.Staff s
-      JOIN dbo.Users su
-        ON su.user_id = s.user_id
-      JOIN dbo.Clinics c
-        ON c.clinic_id = s.clinic_id
-      OUTER APPLY (
-        SELECT
-          COUNT(*) AS total_bookings,
-          COUNT(DISTINCT b.patient_user_id) AS total_patients
-        FROM dbo.Bookings b
-        WHERE b.staff_id = s.staff_id
-          AND b.status = 'confirmed'
+        c.name,
+
+        c.geo_location.Lat,
+        c.geo_location.Long,
+
+        ISNULL(bs.total_bookings,0),
+        ISNULL(bs.total_patients,0),
+
+        ISNULL(rt.total_ratings,0),
+
+        CAST(
+          ISNULL(rt.average_rating,0)
+          AS DECIMAL(3,1)
+        ),
+
+        CAST(1 AS BIT)
+
+      FROM Staff s
+
+      JOIN Users su
+      ON su.user_id=s.user_id
+
+      JOIN Clinics c
+      ON c.clinic_id=s.clinic_id
+
+      OUTER APPLY(
+          SELECT
+            COUNT(*) total_bookings,
+            COUNT(DISTINCT patient_user_id)
+            total_patients
+          FROM Bookings
+          WHERE staff_id=s.staff_id
+          AND status='confirmed'
       ) bs
-      OUTER APPLY (
-        SELECT
-          COUNT(*) AS total_ratings,
-          ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
-        FROM dbo.Ratings r
-        WHERE r.clinic_id = c.clinic_id
-      ) cr
-      WHERE s.role_title = 'doctor'
-        AND s.is_verified = 1
-        AND su.is_active = 1
-        AND c.status = 'approved'
-        ${staffSpecialistFilter}
+
+      OUTER APPLY(
+          SELECT
+            COUNT(*) total_ratings,
+            ROUND(AVG(CAST(rating AS FLOAT)),1)
+            average_rating
+          FROM Ratings
+          WHERE staff_id=s.staff_id
+      ) rt
+
+      WHERE
+        s.role_title='doctor'
+        AND s.is_verified=1
+        AND su.is_active=1
+        AND c.status='approved'
+        ${staffFilter}
+
     ) providers
+
     ORDER BY
-      providers.total_bookings DESC,
-      providers.average_rating DESC,
-      providers.full_name ASC;
+      average_rating DESC,
+      total_bookings DESC,
+      total_patients DESC,
+      full_name ASC
   `);
 
   res.status(200).json({

@@ -113,25 +113,7 @@ exports.createBooking = catchAsync(async (req, res, next) => {
     return next(new AppError("This time slot is already booked", 409));
   }
 
-  const savedPermission = doctor_id
-    ? await sql.query`
-        SELECT TOP 1 permission_id
-        FROM dbo.PrescriptionPermissions
-        WHERE patient_user_id = ${patient_user_id}
-          AND doctor_id = ${doctor_id}
-          AND status = 'accepted';
-      `
-    : await sql.query`
-        SELECT TOP 1 permission_id
-        FROM dbo.PrescriptionPermissions
-        WHERE patient_user_id = ${patient_user_id}
-          AND staff_id = ${staff_id}
-          AND status = 'accepted';
-      `;
-
-  const prescriptionAccessStatus = savedPermission.recordset.length
-    ? "accepted"
-    : "not_requested";
+  const prescriptionAccessStatus = "accepted";
 
   const result = await sql.query`
     INSERT INTO dbo.Bookings
@@ -148,7 +130,7 @@ exports.createBooking = catchAsync(async (req, res, next) => {
       ${booking_from},
       ${booking_to},
       ${prescriptionAccessStatus},
-      ${prescriptionAccessStatus === "accepted" ? new Date() : null}
+      ${new Date()}
     );
   `;
 

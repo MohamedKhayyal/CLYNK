@@ -272,7 +272,7 @@ exports.getStaffProfile = catchAsync(async (req, res, next) => {
     return next(new AppError("Invalid staff id", 400));
   }
 
-  const staff = await sql.query`
+  const result = await sql.query`
     SELECT
       s.staff_id,
       s.user_id,
@@ -280,53 +280,124 @@ exports.getStaffProfile = catchAsync(async (req, res, next) => {
       s.role_title,
       s.specialist,
       s.work_days,
-      CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
-      CONVERT(VARCHAR(5), s.work_to, 108)   AS work_to,
+
+      CONVERT(VARCHAR(5), s.work_from,108)
+      AS work_from,
+
+      CONVERT(VARCHAR(5), s.work_to,108)
+      AS work_to,
+
       s.consultation_price,
       s.is_verified,
+
       u.photo,
+
       c.clinic_id,
       c.name AS clinic_name,
       c.location AS clinic_location,
       c.phone AS clinic_phone,
-      ISNULL(bs.total_bookings, 0) AS total_bookings,
-      ISNULL(bs.total_patients, 0) AS total_patients,
-      ISNULL(cr.total_ratings, 0) AS clinic_total_ratings,
-      CAST(ISNULL(cr.average_rating, 0) AS DECIMAL(3, 1)) AS clinic_average_rating,
-      CAST(1 AS BIT) AS can_be_booked
+
+
+      -------------------------
+      -- bookings
+      -------------------------
+      ISNULL(bs.total_bookings,0)
+      AS total_bookings,
+
+      ISNULL(bs.total_patients,0)
+      AS total_patients,
+
+
+      -------------------------
+      -- STAFF ratings
+      -------------------------
+      ISNULL(rt.total_ratings,0)
+      AS total_ratings,
+
+      CAST(
+        ISNULL(rt.average_rating,0)
+        AS DECIMAL(3,1)
+      ) AS average_rating,
+
+
+      CAST(
+        CASE
+          WHEN s.is_verified=1
+          AND c.status='approved'
+          THEN 1
+          ELSE 0
+        END
+      AS BIT)
+      AS can_be_booked
+
+
     FROM dbo.Staff s
+
     JOIN dbo.Users u
-      ON u.user_id = s.user_id
+      ON u.user_id=s.user_id
+
     JOIN dbo.Clinics c
-      ON c.clinic_id = s.clinic_id
-    OUTER APPLY (
+      ON c.clinic_id=s.clinic_id
+
+
+    -------------------------
+    -- bookings stats
+    -------------------------
+    OUTER APPLY(
       SELECT
-        COUNT(*) AS total_bookings,
-        COUNT(DISTINCT b.patient_user_id) AS total_patients
+        COUNT(*) total_bookings,
+
+        COUNT(
+          DISTINCT patient_user_id
+        ) total_patients
+
       FROM dbo.Bookings b
-      WHERE b.staff_id = s.staff_id
-        AND b.status = 'confirmed'
+
+      WHERE
+        b.staff_id=s.staff_id
+        AND b.status='confirmed'
     ) bs
-    OUTER APPLY (
+
+
+    -------------------------
+    -- staff rating
+    -------------------------
+    OUTER APPLY(
       SELECT
-        COUNT(*) AS total_ratings,
-        ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+        COUNT(*) total_ratings,
+
+        ROUND(
+          AVG(CAST(r.rating AS FLOAT)),
+          1
+        ) average_rating
+
       FROM dbo.Ratings r
-      WHERE r.clinic_id = c.clinic_id
-    ) cr
-    WHERE s.staff_id = ${staffId}
-      AND s.role_title = 'doctor'
-      AND s.is_verified = 1
-      AND u.is_active = 1
-      AND c.status = 'approved';
+
+      WHERE r.staff_id=s.staff_id
+
+    ) rt
+
+
+    WHERE
+      s.staff_id=${staffId}
+      AND s.role_title='doctor'
+      AND s.is_verified=1
+      AND u.is_active=1
+      AND c.status='approved'
   `;
 
-  if (!staff.recordset.length) {
-    return next(new AppError("Staff doctor not found or unavailable for booking", 404));
+
+  if (!result.recordset.length) {
+    return next(
+      new AppError(
+        "Staff doctor not found",
+        404
+      )
+    );
   }
 
   res.status(200).json({
-    status: "success",
-    staff: staff.recordset[0],
+    status:"success",
+    staff:result.recordset[0]
   });
 });
