@@ -50,6 +50,7 @@ exports.getMe = catchAsync(async (req, res, next) => {
         SELECT
         doctor_id,
           full_name,
+          phone,
           gender,
           years_of_experience,
           bio,
@@ -84,6 +85,7 @@ exports.getMe = catchAsync(async (req, res, next) => {
           s.full_name,
           s.clinic_id,
           s.role_title,
+          s.phone,
           s.specialist,
           s.work_days,
           CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
@@ -198,6 +200,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       years_of_experience,
       bio,
       consultation_price,
+      phone,
       work_from,
       work_to,
       specialist,
@@ -228,6 +231,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
           years_of_experience = COALESCE(${normalize(years_of_experience)}, years_of_experience),
           bio                 = COALESCE(${normalize(bio)}, bio),
           consultation_price  = COALESCE(${normalize(consultation_price)}, consultation_price),
+          phone               = COALESCE(${normalize(phone)}, phone),
           work_from           = COALESCE(${normalize(work_from)}, work_from),
           work_to             = COALESCE(${normalize(work_to)}, work_to),
           specialist          = COALESCE(${normalize(specialist)}, specialist),
@@ -262,6 +266,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
         years_of_experience,
         bio,
         consultation_price,
+        phone,
         CONVERT(VARCHAR(5), work_from, 108) AS work_from,
         CONVERT(VARCHAR(5), work_to, 108)   AS work_to,
         specialist,
@@ -302,6 +307,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       work_from,
       work_to,
       consultation_price,
+      phone,
     } = data;
 
     full_name = normalize(full_name);
@@ -337,13 +343,15 @@ exports.updateMe = catchAsync(async (req, res, next) => {
         work_days = COALESCE(${isStaffDoctor ? normalize(work_days) : null}, work_days),
         work_from = COALESCE(${isStaffDoctor ? normalize(work_from) : null}, work_from),
         work_to = COALESCE(${isStaffDoctor ? normalize(work_to) : null}, work_to),
-        consultation_price = COALESCE(${isStaffDoctor ? normalize(consultation_price) : null}, consultation_price)
+        consultation_price = COALESCE(${isStaffDoctor ? normalize(consultation_price) : null}, consultation_price),
+        phone = COALESCE(${normalize(phone)}, phone)
       WHERE user_id = ${user_id};
     `;
 
     selectProfile = () => sql.query`
       SELECT
         s.full_name,
+        s.phone,
         s.clinic_id,
         s.role_title,
         s.specialist,

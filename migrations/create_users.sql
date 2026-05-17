@@ -133,6 +133,7 @@ CREATE TABLE dbo.Staff (
     full_name NVARCHAR(150) NOT NULL,
     role_title VARCHAR(20) NOT NULL
         CHECK (role_title IN ('doctor', 'nurse', 'receptionist')),
+    phone VARCHAR(20),
 
     specialist NVARCHAR(100) NULL,
     work_days NVARCHAR(100) NULL,     -- sun,mon,tue
@@ -387,3 +388,11 @@ ALTER TABLE Staff
 ADD gender NVARCHAR(10)
 CHECK (gender IN ('male', 'female'));
 GO
+
+ALTER TABLE Doctors
+ALTER COLUMN phone VARCHAR(20);
+
+ALTER TABLE Staff
+ALTER COLUMN phone VARCHAR(20);
+
+

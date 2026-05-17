@@ -158,6 +158,7 @@ exports.signup = catchAsync(async (req, res, next) => {
         full_name,
         license_number,
         gender,
+        phone,
         years_of_experience,
         bio,
         consultation_price,
@@ -176,12 +177,12 @@ exports.signup = catchAsync(async (req, res, next) => {
       if (doctorGeoLocation) {
         const doctorResult = await transaction.request().query`
           INSERT INTO dbo.Doctors
-          (user_id, full_name, license_number, gender, years_of_experience,
+          (user_id, full_name, license_number, gender, phone, years_of_experience,
            bio, consultation_price, specialist, work_days, work_from, work_to, location,
            geo_location)
           OUTPUT INSERTED.doctor_id
           VALUES
-          (${user.user_id}, ${full_name}, ${license_number}, ${gender || null},
+          (${user.user_id}, ${full_name}, ${license_number}, ${gender || null}, ${phone || null},
            ${years_of_experience || null}, ${bio || null}, ${consultation_price || null},
            ${specialist}, ${work_days}, ${work_from}, ${work_to}, ${location || null},
            geography::Point(${doctorGeoLocation.latitude}, ${doctorGeoLocation.longitude}, 4326));
@@ -190,12 +191,12 @@ exports.signup = catchAsync(async (req, res, next) => {
       } else {
         const doctorResult = await transaction.request().query`
           INSERT INTO dbo.Doctors
-          (user_id, full_name, license_number, gender, years_of_experience,
+          (user_id, full_name, license_number, gender, phone, years_of_experience,
            bio, consultation_price, specialist, work_days, work_from, work_to, location,
            geo_location)
           OUTPUT INSERTED.doctor_id
           VALUES
-          (${user.user_id}, ${full_name}, ${license_number}, ${gender || null},
+          (${user.user_id}, ${full_name}, ${license_number}, ${gender || null}, ${phone || null},
            ${years_of_experience || null}, ${bio || null}, ${consultation_price || null},
            ${specialist}, ${work_days}, ${work_from}, ${work_to}, ${location || null},
            CAST(NULL AS GEOGRAPHY));
@@ -276,6 +277,7 @@ exports.signup = catchAsync(async (req, res, next) => {
         work_from,
         work_to,
         consultation_price,
+        phone,
       } = profile;
 
       // Find clinic using clinic name
@@ -300,6 +302,7 @@ exports.signup = catchAsync(async (req, res, next) => {
       clinic_id,
       full_name,
       role_title,
+      phone,
       specialist,
       work_days,
       work_from,
@@ -314,6 +317,7 @@ exports.signup = catchAsync(async (req, res, next) => {
       ${clinic.clinic_id},
       ${full_name},
       ${role_title},
+      ${phone || null},
       ${role_title === "doctor" ? specialist : null},
       ${role_title === "doctor" ? work_days : null},
       ${role_title === "doctor" ? work_from : null},
@@ -412,6 +416,7 @@ exports.login = catchAsync(async (req, res, next) => {
         SELECT
           doctor_id,
           full_name,
+          phone,
           specialist,
           work_days,
           CONVERT(VARCHAR(5), work_from, 108) AS work_from,
@@ -437,6 +442,7 @@ exports.login = catchAsync(async (req, res, next) => {
         SELECT
           staff_id,
           s.full_name,
+          s.phone,
           s.clinic_id,
           s.role_title,
           s.specialist,
