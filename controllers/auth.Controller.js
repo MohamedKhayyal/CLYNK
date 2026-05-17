@@ -404,7 +404,12 @@ exports.login = catchAsync(async (req, res, next) => {
   if (user.user_type === "patient") {
     profile = (
       await sql.query`
-        SELECT patient_id, full_name, date_of_birth, gender, phone
+        SELECT
+          patient_id,
+          full_name,
+          CONVERT(VARCHAR(10), date_of_birth, 120) AS date_of_birth,
+          gender,
+          phone
         FROM dbo.Patients WHERE user_id = ${user.user_id};
       `
     ).recordset[0];

@@ -39,7 +39,12 @@ exports.getMe = catchAsync(async (req, res, next) => {
   if (user_type === "patient") {
     profile = (
       await sql.query`
-        SELECT  patient_id, full_name, date_of_birth, gender, phone
+        SELECT
+          patient_id,
+          full_name,
+          CONVERT(VARCHAR(10), date_of_birth, 120) AS date_of_birth,
+          gender,
+          phone
         FROM dbo.Patients
         WHERE user_id = ${user_id};
       `
@@ -189,7 +194,11 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     `;
 
     selectProfile = () => sql.query`
-      SELECT full_name, date_of_birth, gender, phone
+      SELECT
+        full_name,
+        CONVERT(VARCHAR(10), date_of_birth, 120) AS date_of_birth,
+        gender,
+        phone
       FROM dbo.Patients
       WHERE user_id = ${user_id};
     `;
