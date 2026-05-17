@@ -3,6 +3,7 @@ const catchAsync = require("../utilts/catch.Async");
 const AppError = require("../utilts/app.Error");
 const {
   attachGeoLocation,
+  getGeoLocationFromBody,
   normalizeGeoLocation,
 } = require("../utilts/geo.Location");
 
@@ -202,9 +203,8 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       specialist,
       work_days,
       location,
-      geo_location,
     } = data;
-    const doctorGeoLocation = normalizeGeoLocation(geo_location);
+    const doctorGeoLocation = normalizeGeoLocation(getGeoLocationFromBody(data));
 
     full_name = normalize(full_name);
     if (full_name && !NAME_REGEX.test(full_name)) {
@@ -362,8 +362,8 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       WHERE s.user_id = ${user_id};
     `;
   } else if (user_type === "clinic") {
-    let { name, address, location, phone, email, geo_location } = data;
-    const clinicGeoLocation = normalizeGeoLocation(geo_location);
+    let { name, address, location, phone, email } = data;
+    const clinicGeoLocation = normalizeGeoLocation(getGeoLocationFromBody(data));
 
     name = normalize(name);
     if (name && (typeof name !== "string" || name.length > 150)) {

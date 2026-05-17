@@ -16,7 +16,24 @@ exports.normalizeGeoLocation = (geoLocation, fieldName = "geo_location") => {
   if (Array.isArray(geoLocation)) {
     [latitude, longitude] = geoLocation;
   } else if (typeof geoLocation === "string") {
-    [latitude, longitude] = geoLocation.split(",").map((part) => part.trim());
+    const trimmedGeoLocation = geoLocation.trim();
+    if (trimmedGeoLocation === "") return null;
+
+    if (
+      (trimmedGeoLocation.startsWith("{") && trimmedGeoLocation.endsWith("}")) ||
+      (trimmedGeoLocation.startsWith("[") && trimmedGeoLocation.endsWith("]"))
+    ) {
+      try {
+        return exports.normalizeGeoLocation(
+          JSON.parse(trimmedGeoLocation),
+          fieldName,
+        );
+      } catch (err) {
+        throw new AppError(`${fieldName} must be valid JSON or latitude,longitude`, 400);
+      }
+    }
+
+    [latitude, longitude] = trimmedGeoLocation.split(",").map((part) => part.trim());
   } else if (typeof geoLocation === "object") {
     latitude = geoLocation.latitude ?? geoLocation.lat;
     longitude = geoLocation.longitude ?? geoLocation.lng ?? geoLocation.lon;
@@ -45,6 +62,42 @@ exports.normalizeGeoLocation = (geoLocation, fieldName = "geo_location") => {
   }
 
   return { latitude, longitude };
+};
+
+const hasOwn = (record, key) => Object.prototype.hasOwnProperty.call(record, key);
+
+exports.getGeoLocationFromBody = (body, targetKey = "geo_location") => {
+  if (!body) return undefined;
+
+  if (hasOwn(body, targetKey)) {
+    return body[targetKey];
+  }
+
+  const candidatePairs = [
+    [`${targetKey}[latitude]`, `${targetKey}[longitude]`],
+    [`${targetKey}[lat]`, `${targetKey}[lng]`],
+    [`${targetKey}[lat]`, `${targetKey}[lon]`],
+    [`${targetKey}.latitude`, `${targetKey}.longitude`],
+    [`${targetKey}.lat`, `${targetKey}.lng`],
+    [`${targetKey}.lat`, `${targetKey}.lon`],
+    [`${targetKey}_latitude`, `${targetKey}_longitude`],
+    [`${targetKey}_lat`, `${targetKey}_lng`],
+    [`${targetKey}_lat`, `${targetKey}_lon`],
+    ["latitude", "longitude"],
+    ["lat", "lng"],
+    ["lat", "lon"],
+  ];
+
+  for (const [latKey, lonKey] of candidatePairs) {
+    if (hasOwn(body, latKey) || hasOwn(body, lonKey)) {
+      return {
+        latitude: body[latKey],
+        longitude: body[lonKey],
+      };
+    }
+  }
+
+  return undefined;
 };
 
 exports.attachGeoLocation = (

@@ -300,6 +300,7 @@ Note: the ratings router is currently protected for patients only, so even the `
 - `PATCH /api/admin/:id/unverify`
 - `GET /api/admin/doctors`
 - `GET /api/admin/staff`
+- `GET /api/admin/bookings`
 - `GET /api/admin/audit-logs`
 
 All admin routes require an authenticated user with the `admin` role.

@@ -776,3 +776,113 @@ exports.getUnverifiedStaff = catchAsync(async (req, res) => {
     staff: result.recordset,
   });
 });
+
+exports.getAllBookings = catchAsync(async (req, res) => {
+  const result = await sql.query`
+    SELECT
+      b.booking_id,
+      b.booking_date,
+      CONVERT(VARCHAR(5), b.booking_from, 108) AS booking_from,
+      CONVERT(VARCHAR(5), b.booking_to, 108) AS booking_to,
+      CONCAT(
+        CONVERT(VARCHAR(10), b.booking_date, 120),
+        ' ',
+        CONVERT(VARCHAR(5), b.booking_from, 108)
+      ) AS date_time,
+      b.status,
+
+      COALESCE(d.full_name, s.full_name) AS doctor_name,
+      CASE
+        WHEN b.staff_id IS NOT NULL THEN N'عيادة'
+        ELSE N'طبيب'
+      END AS session_type,
+
+      p.patient_id,
+      p.full_name AS patient_name,
+      p.phone AS patient_number,
+
+      c.clinic_id,
+      c.name AS clinic_name
+
+    FROM dbo.Bookings b
+
+    JOIN dbo.Patients p
+      ON p.user_id = b.patient_user_id
+
+    LEFT JOIN dbo.Doctors d
+      ON d.doctor_id = b.doctor_id
+
+    LEFT JOIN dbo.Staff s
+      ON s.staff_id = b.staff_id
+     AND s.role_title = 'doctor'
+
+    LEFT JOIN dbo.Clinics c
+      ON c.clinic_id = s.clinic_id
+
+    ORDER BY b.booking_date DESC, b.booking_from DESC, b.created_at DESC;
+  `;
+
+  res.status(200).json({
+    status: "success",
+    results: result.recordset.length,
+    bookings: result.recordset,
+  });
+});
+
+exports.adminStats = catchAsync(async (req, res) => {
+
+  const doctorsQuery = await sql.query(`
+      SELECT COUNT(*) AS count
+      FROM dbo.Doctors
+  `);
+
+  const staffQuery = await sql.query(`
+      SELECT COUNT(*) AS count
+      FROM dbo.Staff
+  `);
+
+  const clinicsQuery = await sql.query(`
+      SELECT COUNT(*) AS count
+      FROM dbo.Clinics
+  `);
+
+  const patientsQuery = await sql.query(`
+      SELECT COUNT(*) AS count
+      FROM dbo.Patients
+  `);
+
+  const [
+    doctors,
+    staff,
+    clinics,
+    patients
+  ] = await Promise.all([
+    doctorsQuery,
+    staffQuery,
+    clinicsQuery,
+    patientsQuery
+  ]);
+
+  const totalDoctors =
+    doctors.recordset[0].count;
+
+  const totalStaff =
+    staff.recordset[0].count;
+
+  const totalClinics =
+    clinics.recordset[0].count;
+
+  const totalPatients =
+    patients.recordset[0].count;
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      totalDoctors,
+      totalStaff,
+      totalClinics,
+      totalPatients,
+      totalMedicalUsers: totalDoctors + totalStaff
+    }
+  });
+});

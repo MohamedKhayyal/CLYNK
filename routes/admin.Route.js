@@ -27,6 +27,10 @@ router.get("/unverified-doctors", adminController.getUnverifiedDoctors);
 router.get("/staff", adminController.getAllStaff);
 router.get("/verified-staff", adminController.getVerifiedStaff);
 router.get("/unverified-staff", adminController.getUnverifiedStaff);
+router.get("/bookings", adminController.getAllBookings);
 router.get("/audit-logs", auditController.listAuditLogs);
+
+router.get("/audit-stats", auditController.getAuditStats);
+router.get("/admin-stats", adminController.adminStats);
 
 module.exports = router;

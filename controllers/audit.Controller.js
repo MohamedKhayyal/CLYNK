@@ -63,3 +63,22 @@ exports.listAuditLogs = catchAsync(async (req, res, next) => {
     logs,
   });
 });
+
+exports.getAuditStats = catchAsync(async (req, res) => {
+  const totalLogs = getAuditLogs().length;
+  const totalInfoLogs = getAuditLogs({ level: "info" }).length;
+  const totalErrorLogs = getAuditLogs({ level: "error" }).length;
+  const totalSuccessLogs = totalLogs - totalErrorLogs;
+  const totalFailedLogs = totalLogs - totalSuccessLogs;
+
+  res.status(200).json({
+    status: "success",
+    stats: {
+      total_logs: totalLogs,
+      total_info_logs: totalInfoLogs,
+      total_error_logs: totalErrorLogs,
+      total_success_logs: totalSuccessLogs,
+      total_failed_logs: totalFailedLogs,
+    },
+  });
+});
