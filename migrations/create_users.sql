@@ -393,6 +393,14 @@ ALTER TABLE Doctors
 ALTER COLUMN phone VARCHAR(20);
 
 ALTER TABLE Staff
-ALTER COLUMN phone VARCHAR(20);
+ADD phone VARCHAR(20);
 
+ALTER TABLE Staff
+ADD location NVARCHAR(255);
 
+ALTER TABLE dbo.Staff
+ADD years_of_experience INT
+GO
+
+ALTER TABLE Staff
+ADD bio NVARCHAR(MAX); 

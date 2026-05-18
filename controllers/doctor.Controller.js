@@ -150,76 +150,176 @@ exports.getDoctorProfile = catchAsync(async (req, res, next) => {
 exports.getDoctorDashboard = catchAsync(async (req, res, next) => {
   const user_id = req.user.user_id;
 
+  let doctor_id;
+  let profileType = "doctor";
+
+  // search in Doctors table
   const doctor = (
     await sql.query`
       SELECT doctor_id
       FROM dbo.Doctors
       WHERE user_id = ${user_id}
-        AND is_verified = 1;
+      AND is_verified = 1;
     `
   ).recordset[0];
 
-  if (!doctor) {
-    return next(new AppError("Doctor profile not found", 404));
-  }
+  if (doctor) {
+    doctor_id = doctor.doctor_id;
+  } else {
+    // search in Staff table
+    const staff = (
+      await sql.query`
+        SELECT staff_id
+        FROM dbo.Staff
+        WHERE user_id = ${user_id}
+          AND role_title = 'doctor'
+          AND is_verified = 1;
+      `
+    ).recordset[0];
 
-  const doctor_id = doctor.doctor_id;
+    if (!staff)
+      return next(
+        new AppError("Doctor profile not found", 404)
+      );
+
+    doctor_id = staff.staff_id;
+    profileType = "staff";
+  }
 
   const stats = (
     await sql.query`
       SELECT
         COUNT(*) AS total_bookings,
-        COUNT(DISTINCT patient_user_id) AS total_patients,
-        SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed_bookings,
-        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_bookings,
+
+        COUNT(DISTINCT patient_user_id)
+        AS total_patients,
+
         SUM(
           CASE
-            WHEN booking_date = CAST(GETDATE() AS DATE)
-             AND status = 'confirmed'
+            WHEN status='confirmed'
+            THEN 1 ELSE 0
+          END
+        ) AS confirmed_bookings,
+
+        SUM(
+          CASE
+            WHEN status='cancelled'
+            THEN 1 ELSE 0
+          END
+        ) AS cancelled_bookings,
+
+        SUM(
+          CASE
+            WHEN booking_date =
+              CAST(GETDATE() AS DATE)
+             AND status='confirmed'
             THEN 1 ELSE 0
           END
         ) AS today_bookings
+
       FROM dbo.Bookings
       WHERE doctor_id = ${doctor_id};
     `
   ).recordset[0];
 
+
   const upcomingBookings = await sql.query`
     SELECT TOP 5
       b.booking_id,
       b.booking_date,
-      CONVERT(VARCHAR(5), b.booking_from,108) AS booking_from,
-      CONVERT(VARCHAR(5), b.booking_to,108)   AS booking_to,
+
+      CONVERT(
+        VARCHAR(5),
+        b.booking_from,
+        108
+      ) AS booking_from,
+
+      CONVERT(
+        VARCHAR(5),
+        b.booking_to,
+        108
+      ) AS booking_to,
+
       p.full_name AS patient_name,
-      p.phone     AS patient_phone
+      p.phone AS patient_phone,
+      b.status
+
     FROM dbo.Bookings b
+
     JOIN dbo.Patients p
-      ON p.user_id = b.patient_user_id
-    WHERE b.doctor_id = ${doctor_id}
-      AND b.status = 'confirmed'
-      AND b.booking_date >= CAST(GETDATE() AS DATE)
-    ORDER BY b.booking_date, b.booking_from;
+      ON p.user_id =
+         b.patient_user_id
+
+    WHERE b.doctor_id =
+      ${doctor_id}
+
+      AND b.status='confirmed'
+
+      AND b.booking_date >=
+      CAST(GETDATE() AS DATE)
+
+    ORDER BY
+      b.booking_date,
+      b.booking_from;
   `;
+
 
   const ratings = (
     await sql.query`
       SELECT
         COUNT(*) AS total_ratings,
+
         CAST(
-          ISNULL(ROUND(AVG(CAST(rating AS FLOAT)), 1), 0) AS DECIMAL(3, 1)
-        ) AS average_rating
+          ISNULL(
+            ROUND(
+              AVG(
+                CAST(rating AS FLOAT)
+              ),
+              1
+            ),
+            0
+          )
+
+        AS DECIMAL(3,1))
+
+        AS average_rating
+
       FROM dbo.Ratings
-      WHERE doctor_id = ${doctor_id};
+
+      WHERE doctor_id =
+      ${doctor_id};
     `
   ).recordset[0];
 
+
   res.status(200).json({
     status: "success",
+
     dashboard: {
-      stats,
+      profile_type: profileType,
+
+      stats: {
+        total_bookings:
+          stats.total_bookings || 0,
+
+        total_patients:
+          stats.total_patients || 0,
+
+        confirmed_bookings:
+          stats.confirmed_bookings || 0,
+
+        cancelled_bookings:
+          stats.cancelled_bookings || 0,
+
+        today_bookings:
+          stats.today_bookings || 0,
+      },
+
       ratings,
-      upcoming_bookings: upcomingBookings.recordset,
-    },
+
+      upcoming_bookings:
+        upcomingBookings.recordset,
+    }
   });
 });
 

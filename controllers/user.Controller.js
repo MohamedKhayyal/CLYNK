@@ -88,22 +88,31 @@ exports.getMe = catchAsync(async (req, res, next) => {
         SELECT
           staff_id,
           s.full_name,
-          s.clinic_id,
-          s.role_title,
+          s.years_of_experience,
+          s.bio,
+          s.gender,
           s.phone,
-          s.specialist,
-          s.work_days,
-          CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
-          CONVERT(VARCHAR(5), s.work_to, 108)   AS work_to,
-          s.consultation_price,
+          s.location,
+          s.geo_location.Lat AS geo_location_latitude,
+          s.geo_location.Long AS geo_location_longitude,
           s.is_verified,
+          s.clinic_id,
           c.name AS clinic_name,
           c.location AS clinic_location,
           c.geo_location.Lat AS clinic_geo_location_latitude,
-          c.geo_location.Long AS clinic_geo_location_longitude
+          c.geo_location.Long AS clinic_geo_location_longitude,
+          ISNULL(rs.total_ratings, 0) AS total_ratings,
+          CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
         FROM dbo.Staff s
         JOIN dbo.Clinics c
           ON c.clinic_id = s.clinic_id
+        OUTER APPLY (
+          SELECT
+            COUNT(*) AS total_ratings,
+            ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+          FROM dbo.Ratings r
+          WHERE r.staff_id = s.staff_id
+        ) rs
         WHERE s.user_id = ${user_id};
       `
     ).recordset[0];
@@ -305,21 +314,30 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       `
     ).recordset[0];
 
-    if (!staff) return next(new AppError("Profile not found", 404));
+    if (!staff)
+      return next(new AppError("Profile not found", 404));
 
     const isStaffDoctor = staff.role_title === "doctor";
 
     let {
       full_name,
+      gender,
+      years_of_experience,
+      bio,
       specialist,
       work_days,
       work_from,
       work_to,
       consultation_price,
       phone,
+      location,
     } = data;
 
+    const staffGeoLocation =
+      normalizeGeoLocation(getGeoLocationFromBody(data));
+
     full_name = normalize(full_name);
+
     if (full_name && !NAME_REGEX.test(full_name)) {
       return next(new AppError("Invalid full_name value", 400));
     }
@@ -330,53 +348,100 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     if (work_to && !TIME_REGEX.test(work_to))
       return next(new AppError("Invalid work_to format", 400));
 
-    if (Array.isArray(work_days)) work_days = work_days.join(",");
+    if (Array.isArray(work_days))
+      work_days = work_days.join(",");
 
-    if (
-      !isStaffDoctor &&
-      (specialist || work_days || work_from || work_to || consultation_price)
-    ) {
-      return next(
-        new AppError(
-          "Only staff doctors can update schedule or consultation price",
-          400,
-        ),
-      );
-    }
+    updateProfile = async () => {
+      const result = await sql.query`
+        UPDATE dbo.Staff
+        SET
+          full_name           = COALESCE(CAST(${full_name} AS NVARCHAR(150)), full_name),
+          gender              = COALESCE(${normalize(gender)}, gender),
+          years_of_experience = COALESCE(${normalize(years_of_experience)}, years_of_experience),
+          bio                 = COALESCE(${normalize(bio)}, bio),
+          phone               = COALESCE(${normalize(phone)}, phone),
+  
+          specialist          = COALESCE(
+            ${isStaffDoctor ? normalize(specialist) : null},
+            specialist
+          ),
+  
+          work_days           = COALESCE(
+            ${isStaffDoctor ? normalize(work_days) : null},
+            work_days
+          ),
+  
+          work_from           = COALESCE(
+            ${isStaffDoctor ? normalize(work_from) : null},
+            work_from
+          ),
+  
+          work_to             = COALESCE(
+            ${isStaffDoctor ? normalize(work_to) : null},
+            work_to
+          ),
+  
+          consultation_price  = COALESCE(
+            ${isStaffDoctor ? normalize(consultation_price) : null},
+            consultation_price
+          ),
+  
+          location            = COALESCE(
+            ${normalize(location)},
+            location
+          )
+  
+        WHERE user_id = ${user_id};
+      `;
 
-    updateProfile = () => sql.query`
-      UPDATE dbo.Staff
-      SET
-        full_name = COALESCE(CAST(${full_name} AS NVARCHAR(150)), full_name),
-        specialist = COALESCE(${isStaffDoctor ? normalize(specialist) : null}, specialist),
-        work_days = COALESCE(${isStaffDoctor ? normalize(work_days) : null}, work_days),
-        work_from = COALESCE(${isStaffDoctor ? normalize(work_from) : null}, work_from),
-        work_to = COALESCE(${isStaffDoctor ? normalize(work_to) : null}, work_to),
-        consultation_price = COALESCE(${isStaffDoctor ? normalize(consultation_price) : null}, consultation_price),
-        phone = COALESCE(${normalize(phone)}, phone)
-      WHERE user_id = ${user_id};
-    `;
+      if (staffGeoLocation !== undefined && result.rowsAffected[0] > 0) {
+        if (staffGeoLocation) {
+          await sql.query`
+            UPDATE dbo.Staff
+            SET geo_location =
+              geography::Point(
+                ${staffGeoLocation.latitude},
+                ${staffGeoLocation.longitude},
+                4326
+              )
+            WHERE user_id = ${user_id};
+          `;
+        } else {
+          await sql.query`
+            UPDATE dbo.Staff
+            SET geo_location = NULL
+            WHERE user_id = ${user_id};
+          `;
+        }
+      }
+
+      return result;
+    };
 
     selectProfile = () => sql.query`
       SELECT
-        s.full_name,
-        s.phone,
-        s.clinic_id,
-        s.role_title,
-        s.specialist,
-        s.work_days,
-        CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
-        CONVERT(VARCHAR(5), s.work_to, 108)   AS work_to,
-        s.consultation_price,
-        s.is_verified,
-        c.name AS clinic_name,
-        c.location AS clinic_location,
-        c.geo_location.Lat AS clinic_geo_location_latitude,
-        c.geo_location.Long AS clinic_geo_location_longitude
-      FROM dbo.Staff s
-      JOIN dbo.Clinics c
-        ON c.clinic_id = s.clinic_id
-      WHERE s.user_id = ${user_id};
+        full_name,
+        gender,
+        years_of_experience,
+        bio,
+        phone,
+        role_title,
+        specialist,
+        work_days,
+        consultation_price,
+        location,
+  
+        CONVERT(VARCHAR(5), work_from,108) AS work_from,
+        CONVERT(VARCHAR(5), work_to,108) AS work_to,
+  
+        geo_location.Lat  AS geo_location_latitude,
+        geo_location.Long AS geo_location_longitude,
+  
+        clinic_id,
+        is_verified
+  
+      FROM dbo.Staff
+      WHERE user_id = ${user_id};
     `;
   } else if (user_type === "clinic") {
     let { name, address, location, phone, email } = data;

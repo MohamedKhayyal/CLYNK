@@ -14,6 +14,6 @@ router.get("/best", getBestDoctorsAndStaff);
 
 router.get("/:id/profile", getDoctorProfile);
 
-router.get("/dashboard", protect, restrictTo("doctor"), getDoctorDashboard);
+router.get("/dashboard", protect, restrictTo("staff", "doctor"), getDoctorDashboard);
 
 module.exports = router;
