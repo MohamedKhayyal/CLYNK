@@ -6,6 +6,7 @@ const {
   signupValidation,
   loginValidation,
   forgotPasswordValidation,
+  verifyPasswordResetOtpValidation,
   resetPasswordValidation,
   refreshValidation,
 } = require("../middlewares/auth.Validation");
@@ -19,6 +20,12 @@ router.post(
   authLimiter,
   forgotPasswordValidation,
   authController.forgotPassword,
+);
+router.post(
+  "/verify-reset-otp",
+  authLimiter,
+  verifyPasswordResetOtpValidation,
+  authController.verifyPasswordResetOtp,
 );
 router.patch(
   "/reset-password/:token",

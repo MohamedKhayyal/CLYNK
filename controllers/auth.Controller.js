@@ -13,6 +13,10 @@ const Email = require("../utilts/email");
 
 const PASSWORD_RESET_TOKEN_BYTES = 32;
 const DEFAULT_PASSWORD_RESET_EXPIRES_MINUTES = 10;
+const DEFAULT_PASSWORD_RESET_OTP_EXPIRES_MINUTES = 10;
+const DEFAULT_PASSWORD_RESET_OTP_DIGITS = 6;
+const MIN_PASSWORD_RESET_OTP_DIGITS = 4;
+const MAX_PASSWORD_RESET_OTP_DIGITS = 8;
 
 const getPasswordResetExpiresMinutes = () => {
   const minutes = Number(process.env.PASSWORD_RESET_TOKEN_EXPIRES_MINUTES);
@@ -24,8 +28,43 @@ const getPasswordResetExpiresMinutes = () => {
   return DEFAULT_PASSWORD_RESET_EXPIRES_MINUTES;
 };
 
+const getPasswordResetOtpExpiresMinutes = () => {
+  const minutes = Number(process.env.PASSWORD_RESET_OTP_EXPIRES_MINUTES);
+
+  if (Number.isFinite(minutes) && minutes > 0) {
+    return Math.floor(minutes);
+  }
+
+  return DEFAULT_PASSWORD_RESET_OTP_EXPIRES_MINUTES;
+};
+
+const getPasswordResetOtpDigits = () => {
+  const digits = Number(process.env.PASSWORD_RESET_OTP_DIGITS);
+
+  if (Number.isFinite(digits)) {
+    const normalizedDigits = Math.floor(digits);
+
+    if (
+      normalizedDigits >= MIN_PASSWORD_RESET_OTP_DIGITS &&
+      normalizedDigits <= MAX_PASSWORD_RESET_OTP_DIGITS
+    ) {
+      return normalizedDigits;
+    }
+  }
+
+  return DEFAULT_PASSWORD_RESET_OTP_DIGITS;
+};
+
+const generatePasswordResetOtp = (digits) => {
+  const maxValue = 10 ** digits;
+  return String(crypto.randomInt(0, maxValue)).padStart(digits, "0");
+};
+
 const hashPasswordResetToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
+
+const hashPasswordResetOtp = (otp) =>
+  crypto.createHash("sha256").update(otp).digest("hex");
 
 const buildPasswordResetUrl = (req, token) => {
   const frontendResetUrl = process.env.PASSWORD_RESET_URL;
@@ -89,6 +128,95 @@ const sendSignupWelcomeEmail = async ({ email, profile }) => {
   } catch (err) {
     console.error("Failed to send signup welcome email:", err.message);
   }
+};
+
+const getDoctorProfileByUserId = async (userId) => {
+  const profile = (
+    await sql.query`
+      SELECT
+        doctor_id,
+        full_name,
+        gender,
+        phone,
+        specialist,
+        work_days,
+        CONVERT(VARCHAR(5), work_from, 108) AS work_from,
+        CONVERT(VARCHAR(5), work_to, 108) AS work_to,
+        consultation_price,
+        location,
+        geo_location.Lat AS geo_location_latitude,
+        geo_location.Long AS geo_location_longitude,
+        years_of_experience,
+        bio,
+        is_verified,
+        ISNULL(rs.total_ratings, 0) AS total_ratings,
+        CAST(ISNULL(rs.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
+      FROM dbo.Doctors d
+      OUTER APPLY (
+        SELECT
+          COUNT(*) AS total_ratings,
+          ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+        FROM dbo.Ratings r
+        WHERE r.doctor_id = d.doctor_id
+      ) rs
+      WHERE user_id = ${userId};
+    `
+  ).recordset[0];
+
+  if (profile) {
+    attachGeoLocation(profile);
+  }
+
+  return profile;
+};
+
+const getStaffProfileByUserId = async (userId) => {
+  const profile = (
+    await sql.query`
+      SELECT
+        s.staff_id,
+        s.full_name,
+        s.phone,
+        s.gender,
+        s.years_of_experience,
+        s.bio,
+        s.role_title,
+        s.specialist,
+        s.work_days,
+        CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
+        CONVERT(VARCHAR(5), s.work_to, 108) AS work_to,
+        s.consultation_price,
+        s.location,
+        s.geo_location.Lat AS geo_location_latitude,
+        s.geo_location.Long AS geo_location_longitude,
+        s.is_verified,
+        s.clinic_id,
+        c.name AS clinic_name,
+        c.location AS clinic_location,
+        c.geo_location.Lat AS clinic_geo_location_latitude,
+        c.geo_location.Long AS clinic_geo_location_longitude,
+        ISNULL(rt.total_ratings, 0) AS total_ratings,
+        CAST(ISNULL(rt.average_rating, 0) AS DECIMAL(3, 1)) AS average_rating
+      FROM dbo.Staff s
+      JOIN dbo.Clinics c
+        ON c.clinic_id = s.clinic_id
+      OUTER APPLY (
+        SELECT
+          COUNT(*) AS total_ratings,
+          ROUND(AVG(CAST(r.rating AS FLOAT)), 1) AS average_rating
+        FROM dbo.Ratings r
+        WHERE r.staff_id = s.staff_id
+      ) rt
+      WHERE s.user_id = ${userId};
+    `
+  ).recordset[0];
+
+  if (profile) {
+    attachGeoLocation(profile);
+    attachGeoLocation(profile, { targetKey: "clinic_geo_location" });
+  }
+
+  return profile;
 };
 
 exports.signup = catchAsync(async (req, res, next) => {
@@ -271,6 +399,9 @@ exports.signup = catchAsync(async (req, res, next) => {
       const {
         full_name,
         name,
+        years_of_experience,
+        location,
+        gender,
         role_title,
         specialist,
         work_days,
@@ -359,6 +490,16 @@ exports.signup = catchAsync(async (req, res, next) => {
     await sendSignupWelcomeEmail({ email, profile });
   }
 
+  let signupProfile = null;
+
+  if (user_type === "doctor") {
+    signupProfile = await getDoctorProfileByUserId(user.user_id);
+  }
+
+  if (user_type === "staff") {
+    signupProfile = await getStaffProfileByUserId(user.user_id);
+  }
+
   const accessToken = signAccessToken({
     user_id: user.user_id,
     role: user.user_type,
@@ -380,6 +521,7 @@ exports.signup = catchAsync(async (req, res, next) => {
       clinic_id: user.user_type === "clinic" ? roleIds.clinicid : undefined,
       staff_id: user.user_type === "staff" ? roleIds.staffid : undefined,
       clinic_name: user.user_type === "staff" ? user.clinic_name : undefined,
+      profile: signupProfile || undefined,
     },
   });
 });
@@ -416,58 +558,11 @@ exports.login = catchAsync(async (req, res, next) => {
   }
 
   if (user.user_type === "doctor") {
-    profile = (
-      await sql.query`
-        SELECT
-          doctor_id,
-          full_name,
-          phone,
-          specialist,
-          work_days,
-          CONVERT(VARCHAR(5), work_from, 108) AS work_from,
-          CONVERT(VARCHAR(5), work_to, 108) AS work_to,
-          consultation_price,
-          location,
-          geo_location.Lat AS geo_location_latitude,
-          geo_location.Long AS geo_location_longitude,
-          years_of_experience,
-          bio,
-          is_verified
-        FROM dbo.Doctors WHERE user_id = ${user.user_id};
-      `
-    ).recordset[0];
-
-    attachGeoLocation(profile);
-
+    profile = await getDoctorProfileByUserId(user.user_id);
   }
 
   if (user.user_type === "staff") {
-    profile = (
-      await sql.query`
-        SELECT
-          staff_id,
-          s.full_name,
-          s.phone,
-          s.clinic_id,
-          s.role_title,
-          s.specialist,
-          s.work_days,
-          CONVERT(VARCHAR(5), s.work_from, 108) AS work_from,
-          CONVERT(VARCHAR(5), s.work_to, 108) AS work_to,
-          s.consultation_price,
-          s.is_verified,
-          c.name AS clinic_name,
-          c.location AS clinic_location,
-          c.geo_location.Lat AS clinic_geo_location_latitude,
-          c.geo_location.Long AS clinic_geo_location_longitude
-        FROM dbo.Staff s
-        JOIN dbo.Clinics c
-          ON c.clinic_id = s.clinic_id
-        WHERE s.user_id = ${user.user_id};
-      `
-    ).recordset[0];
-
-    attachGeoLocation(profile, { targetKey: "clinic_geo_location" });
+    profile = await getStaffProfileByUserId(user.user_id);
   }
 
   if (user.user_type === "clinic") {
@@ -559,7 +654,7 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
   ).recordset[0];
 
   const responseMessage =
-    "If an active account exists for this email, a password reset message has been sent.";
+    "If an active account exists for this email, a password reset code has been sent.";
 
   if (!user) {
     return res.status(200).json({
@@ -568,29 +663,31 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
     });
   }
 
-  const resetToken = crypto
-    .randomBytes(PASSWORD_RESET_TOKEN_BYTES)
-    .toString("hex");
-  const hashedResetToken = hashPasswordResetToken(resetToken);
-  const expiresMinutes = getPasswordResetExpiresMinutes();
+  const otpDigits = getPasswordResetOtpDigits();
+  const otpCode = generatePasswordResetOtp(otpDigits);
+  const hashedOtpCode = hashPasswordResetOtp(otpCode);
+  const expiresMinutes = getPasswordResetOtpExpiresMinutes();
 
   await sql.query`
     UPDATE dbo.Users
-    SET password_reset_token = ${hashedResetToken},
-        password_reset_expires = DATEADD(MINUTE, ${expiresMinutes}, SYSDATETIME())
+    SET password_reset_otp = ${hashedOtpCode},
+        password_reset_otp_expires = DATEADD(MINUTE, ${expiresMinutes}, SYSDATETIME()),
+        password_reset_token = NULL,
+        password_reset_expires = NULL
     WHERE user_id = ${user.user_id};
   `;
 
-  const resetUrl = buildPasswordResetUrl(req, resetToken);
-
   try {
-    await new Email({ email: user.email }, resetUrl).sendPasswordReset({
+    await new Email({ email: user.email }).sendPasswordResetOtp({
+      otpCode,
       expiresMinutes,
     });
   } catch (err) {
     await sql.query`
       UPDATE dbo.Users
-      SET password_reset_token = NULL,
+      SET password_reset_otp = NULL,
+          password_reset_otp_expires = NULL,
+          password_reset_token = NULL,
           password_reset_expires = NULL
       WHERE user_id = ${user.user_id};
     `;
@@ -606,6 +703,51 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
   res.status(200).json({
     status: "success",
     message: responseMessage,
+  });
+});
+
+exports.verifyPasswordResetOtp = catchAsync(async (req, res, next) => {
+  const { email, otp } = req.body;
+  const hashedOtpCode = hashPasswordResetOtp(otp);
+
+  const user = (
+    await sql.query`
+      SELECT user_id
+      FROM dbo.Users
+      WHERE email = ${email}
+        AND password_reset_otp = ${hashedOtpCode}
+        AND password_reset_otp_expires > SYSDATETIME()
+        AND is_active = 1;
+    `
+  ).recordset[0];
+
+  if (!user) {
+    return next(new AppError("Reset code is invalid or has expired", 400));
+  }
+
+  const resetToken = crypto
+    .randomBytes(PASSWORD_RESET_TOKEN_BYTES)
+    .toString("hex");
+  const hashedResetToken = hashPasswordResetToken(resetToken);
+  const expiresMinutes = getPasswordResetExpiresMinutes();
+
+  await sql.query`
+    UPDATE dbo.Users
+    SET password_reset_token = ${hashedResetToken},
+        password_reset_expires = DATEADD(MINUTE, ${expiresMinutes}, SYSDATETIME()),
+        password_reset_otp = NULL,
+        password_reset_otp_expires = NULL
+    WHERE user_id = ${user.user_id};
+  `;
+
+  const resetUrl = buildPasswordResetUrl(req, resetToken);
+
+  res.status(200).json({
+    status: "success",
+    message: "Reset code verified.",
+    reset_token: resetToken,
+    reset_url: resetUrl,
+    expires_minutes: expiresMinutes,
   });
 });
 
@@ -636,7 +778,9 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
     UPDATE dbo.Users
     SET password = ${hashedPassword},
         password_reset_token = NULL,
-        password_reset_expires = NULL
+        password_reset_expires = NULL,
+        password_reset_otp = NULL,
+        password_reset_otp_expires = NULL
     WHERE user_id = ${user.user_id};
   `;
 

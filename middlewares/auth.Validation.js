@@ -5,6 +5,26 @@ const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
 const TIME_REGEX = /^\d{2}:\d{2}(:\d{2})?$/;
 const ALLOWED_SIGNUP_ROLES = ["patient", "doctor", "staff", "clinic"];
 const STAFF_ROLES = ["doctor", "nurse", "receptionist"];
+const DEFAULT_PASSWORD_RESET_OTP_DIGITS = 6;
+const MIN_PASSWORD_RESET_OTP_DIGITS = 4;
+const MAX_PASSWORD_RESET_OTP_DIGITS = 8;
+
+const getPasswordResetOtpDigits = () => {
+  const digits = Number(process.env.PASSWORD_RESET_OTP_DIGITS);
+
+  if (Number.isFinite(digits)) {
+    const normalizedDigits = Math.floor(digits);
+
+    if (
+      normalizedDigits >= MIN_PASSWORD_RESET_OTP_DIGITS &&
+      normalizedDigits <= MAX_PASSWORD_RESET_OTP_DIGITS
+    ) {
+      return normalizedDigits;
+    }
+  }
+
+  return DEFAULT_PASSWORD_RESET_OTP_DIGITS;
+};
 
 exports.signupValidation = (req, res, next) => {
   const { email, password, user_type, profile } = req.body;
@@ -229,6 +249,39 @@ exports.resetPasswordValidation = (req, res, next) => {
     return next(new AppError("Password confirmation does not match", 400));
   }
 
+  next();
+};
+
+exports.verifyPasswordResetOtpValidation = (req, res, next) => {
+  const { email, otp } = req.body;
+
+  if (!email) {
+    return next(new AppError("Email is required", 400));
+  }
+
+  if (!EMAIL_REGEX.test(email)) {
+    return next(new AppError("Invalid email format", 400));
+  }
+
+  if (!otp) {
+    return next(new AppError("OTP code is required", 400));
+  }
+
+  if (typeof otp !== "string") {
+    return next(new AppError("OTP code must be a string", 400));
+  }
+
+  const normalizedOtp = otp.trim();
+  const otpDigits = getPasswordResetOtpDigits();
+  const otpRegex = new RegExp(`^\\d{${otpDigits}}$`);
+
+  if (!otpRegex.test(normalizedOtp)) {
+    return next(
+      new AppError(`OTP code must be ${otpDigits} digits`, 400),
+    );
+  }
+
+  req.body.otp = normalizedOtp;
   next();
 };
 

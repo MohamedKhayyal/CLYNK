@@ -13,6 +13,7 @@ module.exports = class Email {
     this.to = user.email;
     this.firstName = (user.name || user.email).trim().split(/\s+/)[0];
     this.url = url;
+
     this.from = process.env.EMAIL_FROM
       ? `Clynk <${process.env.EMAIL_FROM}>`
       : "Clynk";
@@ -23,6 +24,7 @@ module.exports = class Email {
       host: process.env.EMAIL_HOST,
       port: Number(process.env.EMAIL_PORT) || 587,
       secure: Number(process.env.EMAIL_PORT) === 465,
+
       auth: {
         user: process.env.EMAIL_USERNAME,
         pass: process.env.EMAIL_PASSWORD,
@@ -31,41 +33,60 @@ module.exports = class Email {
   }
 
   async send(subject, message, html) {
-    const mailOptions = {
+    await this.newTransport().sendMail({
       from: this.from,
       to: this.to,
       subject,
       text: message,
       html,
-    };
-
-    await this.newTransport().sendMail(mailOptions);
+    });
   }
 
   async sendPasswordReset({ expiresMinutes = 10 } = {}) {
     const escapedFirstName = escapeHtml(this.firstName);
     const escapedUrl = escapeHtml(this.url);
+
     const text = [
       `Hi ${this.firstName},`,
       "",
       "We received a request to reset the password for your Clynk account.",
       `Reset your password here: ${this.url}`,
       "",
-      `This link expires in ${expiresMinutes} minutes. If you did not request this, you can ignore this email.`,
+      `This link expires in ${expiresMinutes} minutes.`,
+      "If you did not request this, ignore this email.",
     ].join("\n");
 
     const html = `
-      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937;max-width:640px;margin:0 auto;padding:24px">
-        <h2 style="margin:0 0 12px;color:#111827">Reset your Clynk password</h2>
+      <div style="font-family:Arial,sans-serif;padding:24px">
+        <h2>Reset your Clynk password</h2>
+
         <p>Hi ${escapedFirstName},</p>
-        <p>We received a request to reset the password for your Clynk account.</p>
+
         <p>
-          <a href="${escapedUrl}" style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px;font-weight:700">
-            Reset password
-          </a>
+          We received a request to reset your password.
         </p>
-        <p>This link expires in ${expiresMinutes} minutes. If you did not request this, you can safely ignore this email.</p>
-        <p style="font-size:12px;color:#6b7280;word-break:break-all">Reset link: ${escapedUrl}</p>
+
+        <a
+          href="${escapedUrl}"
+          style="
+            background:#0f766e;
+            color:white;
+            padding:12px 18px;
+            border-radius:8px;
+            text-decoration:none;
+            display:inline-block;
+          "
+        >
+          Reset Password
+        </a>
+
+        <p>
+          This link expires in ${expiresMinutes} minutes.
+        </p>
+
+        <p style="font-size:12px;color:#666">
+          ${escapedUrl}
+        </p>
       </div>
     `;
 
@@ -76,56 +97,188 @@ module.exports = class Email {
     );
   }
 
-  async sendWelcome() {
+  async sendPasswordResetOtp({
+    otpCode,
+    expiresMinutes = 10,
+  } = {}) {
     const escapedFirstName = escapeHtml(this.firstName);
+    const escapedOtp = escapeHtml(otpCode);
+
     const text = [
       `Hi ${this.firstName},`,
       "",
-      "Welcome to Clynk. Your account has been created successfully.",
-      "You can now sign in and start using your account.",
+      "Use this code to reset your password:",
+      otpCode,
       "",
-      "Thanks for joining us.",
+      `This code expires in ${expiresMinutes} minutes.`,
+      "If you didn't request this, ignore this email.",
     ].join("\n");
 
     const html = `
-      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937;max-width:640px;margin:0 auto;padding:24px">
-        <h2 style="margin:0 0 12px;color:#111827">Welcome to Clynk</h2>
-        <p>Hi ${escapedFirstName},</p>
-        <p>Your account has been created successfully.</p>
-        <p>You can now sign in and start using your account.</p>
-        <p>Thanks for joining us.</p>
-      </div>
-    `;
+      <div style="
+        background:#f8fafc;
+        padding:24px;
+        font-family:Arial,sans-serif;
+      ">
 
-    await this.send("Welcome to Clynk", text, html);
-  }
+        <table
+          width="100%"
+          style="
+            max-width:600px;
+            margin:auto;
+            background:white;
+            border-radius:12px;
+            overflow:hidden;
+            border:1px solid #e2e8f0;
+          "
+        >
 
-  async sendDoctorPendingVerification() {
-    const escapedFirstName = escapeHtml(this.firstName);
-    const text = [
-      `Hi Dr. ${this.firstName},`,
-      "",
-      "Your Clynk doctor account has been created successfully and is now waiting for admin verification.",
-      "Our admin team will review your submitted details and license information. You will be able to use verified doctor features after approval.",
-      "",
-      "Thank you for your patience.",
-    ].join("\n");
+          <tr>
+            <td
+              style="
+                background:#0f766e;
+                color:white;
+                padding:20px;
+              "
+            >
+              <h2 style="margin:0">
+                Clynk
+              </h2>
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937;max-width:640px;margin:0 auto;padding:24px">
-        <h2 style="margin:0 0 12px;color:#111827">Your doctor account is under review</h2>
-        <p>Hi Dr. ${escapedFirstName},</p>
-        <p>Your Clynk doctor account has been created successfully and is now waiting for admin verification.</p>
-        <p>Our admin team will review your submitted details and license information. Verified doctor features become available after approval.</p>
-        <div style="background:#ecfdf5;border-left:4px solid #0f766e;padding:12px 14px;margin:18px 0">
-          Please wait until an admin verifies your account.
-        </div>
-        <p>Thank you for your patience.</p>
+              <small>Password reset code</small>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:24px">
+
+              <p>
+                Hi ${escapedFirstName},
+              </p>
+
+              <p>
+                Use the code below:
+              </p>
+
+              <div style="text-align:center">
+
+                <div style="
+                  display:inline-block;
+                  padding:16px 22px;
+                  border:1px dashed #94a3b8;
+                  border-radius:10px;
+                  font-size:28px;
+                  letter-spacing:6px;
+                  font-weight:700;
+                  background:#f1f5f9;
+                  color:#0f766e;
+                ">
+                  ${escapedOtp}
+                </div>
+
+              </div>
+
+              <p>
+                Expires in ${expiresMinutes} minutes.
+              </p>
+
+              <small style="color:#666">
+                Don't share this code.
+              </small>
+
+            </td>
+          </tr>
+
+        </table>
+
       </div>
     `;
 
     await this.send(
-      "Your Clynk doctor account is waiting for verification",
+      "Your password reset code",
+      text,
+      html
+    );
+  }
+
+  async sendWelcome() {
+    const escapedFirstName = escapeHtml(this.firstName);
+
+    const text = [
+      `Hi ${this.firstName},`,
+      "",
+      "Welcome to Clynk.",
+      "Your account was created successfully.",
+    ].join("\n");
+
+    const html = `
+      <div style="padding:24px;font-family:Arial">
+
+        <h2>
+          Welcome to Clynk
+        </h2>
+
+        <p>
+          Hi ${escapedFirstName},
+        </p>
+
+        <p>
+          Your account has been created successfully.
+        </p>
+
+        <p>
+          You can sign in now.
+        </p>
+
+      </div>
+    `;
+
+    await this.send(
+      "Welcome to Clynk",
+      text,
+      html
+    );
+  }
+
+  async sendDoctorPendingVerification() {
+    const escapedFirstName =
+      escapeHtml(this.firstName);
+
+    const text = [
+      `Hi Dr. ${this.firstName},`,
+      "",
+      "Your account is waiting for admin verification.",
+      "You can use doctor features after approval.",
+    ].join("\n");
+
+    const html = `
+      <div style="padding:24px;font-family:Arial">
+
+        <h2>
+          Account under review
+        </h2>
+
+        <p>
+          Hi Dr. ${escapedFirstName},
+        </p>
+
+        <p>
+          Your account is waiting for verification.
+        </p>
+
+        <div style="
+          background:#ecfdf5;
+          border-left:4px solid #0f766e;
+          padding:12px;
+        ">
+          Please wait for admin approval.
+        </div>
+
+      </div>
+    `;
+
+    await this.send(
+      "Doctor account waiting for verification",
       text,
       html
     );

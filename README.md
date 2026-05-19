@@ -139,6 +139,7 @@ Main tables created by the migration scripts:
 - `migrations/create_ratings.sql`: ratings table and indexes
 - `migrations/add_prescription_access_flow.sql`: additive migration for prescription access workflow and related indexes
 - `migrations/add_password_reset_fields.sql`: additive migration for password reset token storage
+- `migrations/add_password_reset_otp_fields.sql`: additive migration for password reset OTP storage
 
 ## Environment Variables
 
@@ -181,6 +182,8 @@ EMAIL_FROM=no-reply@example.com
 FRONTEND_URL=http://localhost:3000
 PASSWORD_RESET_URL=http://localhost:3000/reset-password/:token
 PASSWORD_RESET_TOKEN_EXPIRES_MINUTES=10
+PASSWORD_RESET_OTP_EXPIRES_MINUTES=10
+PASSWORD_RESET_OTP_DIGITS=6
 ```
 
 ## Installation
@@ -212,6 +215,7 @@ Default port is `3001` unless `PORT` is provided.
 3. Run `migrations/create_ratings.sql`.
 4. Run `migrations/add_prescription_access_flow.sql` if your database was created before the prescription access flow was added.
 5. Run `migrations/add_password_reset_fields.sql` if your database was created before password reset support was added.
+6. Run `migrations/add_password_reset_otp_fields.sql` if your database was created before OTP reset support was added.
 
 If you are starting from scratch and `create_users.sql` already includes the latest prescription schema, review whether the final migration is still needed in your environment before applying it.
 
@@ -222,7 +226,7 @@ If you are starting from scratch and `create_users.sql` already includes the lat
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
 - `POST /api/auth/forgot-password`
-- `POST /api/auth/forget-password`
+- `POST /api/auth/verify-reset-otp`
 - `PATCH /api/auth/reset-password/:token`
 - `POST /api/auth/refresh`
 - `POST /api/auth/logout`

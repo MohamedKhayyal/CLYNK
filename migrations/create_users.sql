@@ -9,6 +9,8 @@ CREATE TABLE dbo.Users (
     password VARCHAR(255) NOT NULL,
     password_reset_token VARCHAR(64) NULL,
     password_reset_expires DATETIME2 NULL,
+    password_reset_otp VARCHAR(64) NULL,
+    password_reset_otp_expires DATETIME2 NULL,
     photo VARCHAR(500) NULL,
 
     user_type VARCHAR(20) NOT NULL
