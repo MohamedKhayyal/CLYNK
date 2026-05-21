@@ -16,6 +16,7 @@ router.get("/approved-clinics", adminController.getApprovedClinics);
 
 router.patch("/clinics/:id/approve", adminController.approveClinic);
 router.patch("/clinics/:id/reject", adminController.rejectClinic);
+router.patch("/clinics/:id/unverify", adminController.unverifyClinic);
 
 router.patch("/:id/verify", adminController.verifyDoctor);
 router.patch("/:id/unverify", adminController.unverifyDoctor);

@@ -404,6 +404,9 @@ ALTER TABLE dbo.Staff
 ADD years_of_experience INT
 GO
 
+ALTER TABLE dbo.Staff
+ADD geo_location GEOGRAPHY NULL;
+GO
 
 ALTER TABLE Staff
 ADD bio NVARCHAR(MAX);  

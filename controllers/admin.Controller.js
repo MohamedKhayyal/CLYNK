@@ -74,7 +74,10 @@ exports.createAdmin = catchAsync(async (req, res, next) => {
       try {
         await transaction.rollback();
       } catch (rollbackErr) {
-        console.error("Failed to roll back admin creation transaction:", rollbackErr.message);
+        console.error(
+          "Failed to roll back admin creation transaction:",
+          rollbackErr.message,
+        );
       }
     }
     next(err);
@@ -292,7 +295,7 @@ exports.approveClinic = catchAsync(async (req, res, next) => {
     return next(new AppError("Clinic not found", 404));
   }
 
-  if (clinic.status !== "pending") {
+  if (clinic.status !== "pending" && clinic.status !== "rejected") {
     return next(
       new AppError("Only clinics with pending status can be approved", 400),
     );
@@ -323,27 +326,27 @@ exports.rejectClinic = catchAsync(async (req, res, next) => {
   const clinicId = Number(req.params.id);
   const adminUserId = getAdminUserId(req, next);
 
-  if (!adminUserId) {
-    return;
-  }
+  if (!adminUserId) return;
 
-  if (!clinicId) {
+  if (!Number.isInteger(clinicId) || clinicId <= 0) {
     return next(new AppError("Invalid clinic id", 400));
   }
 
   const admin = (
     await sql.query`
-      SELECT admin_id FROM dbo.Admins WHERE user_id = ${adminUserId};
+      SELECT admin_id
+      FROM dbo.Admins
+      WHERE user_id = ${adminUserId};
     `
   ).recordset[0];
 
   if (!admin) {
-    return next(new AppError("Admin privileges are required", 403));
+    return next(new AppError("Admin privileges required", 403));
   }
 
   const clinic = (
     await sql.query`
-      SELECT clinic_id, status, owner_user_id
+      SELECT clinic_id,status,owner_user_id
       FROM dbo.Clinics
       WHERE clinic_id = ${clinicId};
     `
@@ -353,30 +356,88 @@ exports.rejectClinic = catchAsync(async (req, res, next) => {
     return next(new AppError("Clinic not found", 404));
   }
 
-  // if (clinic.status !== "pending") {
-  //   return next(
-  //     new AppError("Only clinics with pending status can be rejected", 400),
-  //   );
-  // }
+  if (clinic.status !== "pending" && clinic.status !== "approved") {
+    return next(new AppError("Only pending or approved clinics can be rejected", 400));
+  }
 
   await sql.query`
     UPDATE dbo.Clinics
     SET
-      status = 'pending',
-      verified_by_admin_id = ${admin.admin_id},
-      verified_at = SYSDATETIME()
-    WHERE clinic_id = ${clinicId};
+      status='rejected',
+      verified_by_admin_id=NULL,
+      verified_at=NULL
+    WHERE clinic_id=${clinicId};
   `;
 
   await createNotification({
     user_id: clinic.owner_user_id,
     title: "تم رفض العيادة",
-    message: "تم رفض طلب العيادة. يرجى مراجعة المتطلبات وإعادة التقديم.",
+    message:
+      "تم رفض طلب التحقق من العيادة، يرجى مراجعة البيانات وإعادة التقديم.",
   });
 
   res.status(200).json({
     status: "success",
-    message: "تم رفض العيادة بنجاح",
+    message: "Clinic rejected successfully",
+  });
+});
+
+exports.unverifyClinic = catchAsync(async (req, res, next) => {
+  const clinicId = Number(req.params.id);
+  const adminUserId = getAdminUserId(req, next);
+
+  if (!adminUserId) return;
+
+  if (!Number.isInteger(clinicId) || clinicId <= 0) {
+    return next(new AppError("Invalid clinic id", 400));
+  }
+
+  const admin = (
+    await sql.query`
+      SELECT admin_id
+      FROM dbo.Admins
+      WHERE user_id=${adminUserId};
+    `
+  ).recordset[0];
+
+  if (!admin) {
+    return next(new AppError("Admin privileges required", 403));
+  }
+
+  const clinic = (
+    await sql.query`
+      SELECT clinic_id,status,owner_user_id
+      FROM dbo.Clinics
+      WHERE clinic_id=${clinicId};
+    `
+  ).recordset[0];
+
+  if (!clinic) {
+    return next(new AppError("Clinic not found", 404));
+  }
+
+  if (clinic.status !== "approved" && clinic.status !== "rejected") {
+    return next(new AppError("Only approved or rejected clinics can be unverified", 400));
+  }
+
+  await sql.query`
+    UPDATE dbo.Clinics
+    SET
+      status='pending',
+      verified_by_admin_id=NULL,
+      verified_at=NULL
+    WHERE clinic_id=${clinicId};
+  `;
+
+  await createNotification({
+    user_id: clinic.owner_user_id,
+    title: "تم إلغاء التحقق من العيادة",
+    message: "تم إلغاء اعتماد العيادة وعادت للمراجعة مرة أخرى.",
+  });
+
+  res.status(200).json({
+    status: "success",
+    message: "Clinic unverified successfully",
   });
 });
 
@@ -712,7 +773,7 @@ exports.getVerifiedStaff = catchAsync(async (req, res) => {
       s.consultation_price,
       s.is_verified,
       u.is_active,
-      u.photo,
+      u.zphoto,
 
       c.clinic_id,
       c.name AS clinic_name,
@@ -830,7 +891,6 @@ exports.getAllBookings = catchAsync(async (req, res) => {
 });
 
 exports.adminStats = catchAsync(async (req, res) => {
-
   const doctorsQuery = await sql.query(`
       SELECT COUNT(*) AS count
       FROM dbo.Doctors
@@ -851,29 +911,20 @@ exports.adminStats = catchAsync(async (req, res) => {
       FROM dbo.Patients
   `);
 
-  const [
-    doctors,
-    staff,
-    clinics,
-    patients
-  ] = await Promise.all([
+  const [doctors, staff, clinics, patients] = await Promise.all([
     doctorsQuery,
     staffQuery,
     clinicsQuery,
-    patientsQuery
+    patientsQuery,
   ]);
 
-  const totalDoctors =
-    doctors.recordset[0].count;
+  const totalDoctors = doctors.recordset[0].count;
 
-  const totalStaff =
-    staff.recordset[0].count;
+  const totalStaff = staff.recordset[0].count;
 
-  const totalClinics =
-    clinics.recordset[0].count;
+  const totalClinics = clinics.recordset[0].count;
 
-  const totalPatients =
-    patients.recordset[0].count;
+  const totalPatients = patients.recordset[0].count;
 
   res.status(200).json({
     status: "success",
@@ -882,7 +933,7 @@ exports.adminStats = catchAsync(async (req, res) => {
       totalStaff,
       totalClinics,
       totalPatients,
-      totalMedicalUsers: totalDoctors + totalStaff
-    }
+      totalMedicalUsers: totalDoctors + totalStaff,
+    },
   });
 });

@@ -192,7 +192,7 @@ exports.getPublicClinics = catchAsync(async (req, res) => {
 
     WHERE c.status = 'approved'
       AND u.is_active = 1
-
+          
     ORDER BY c.created_at DESC;
   `;
 

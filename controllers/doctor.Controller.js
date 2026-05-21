@@ -65,6 +65,7 @@ exports.getDoctors = catchAsync(async (req, res) => {
     WHERE
       d.is_verified = 1
       ${specialistFilter}
+      AND u.is_active = 1
 
     ORDER BY
       d.years_of_experience DESC,
@@ -135,10 +136,13 @@ exports.getDoctorProfile = catchAsync(async (req, res, next) => {
     WHERE
       d.doctor_id = ${doctor_id}
       AND d.is_verified = 1
+      AND u.is_active = 1
   `;
 
   if (!doctor.recordset.length) {
-    return next(new AppError("Doctor not found or unavailable for booking", 404));
+    return next(
+      new AppError("Doctor not found or unavailable for booking", 404),
+    );
   }
 
   res.status(200).json({
@@ -177,10 +181,7 @@ exports.getDoctorDashboard = catchAsync(async (req, res, next) => {
       `
     ).recordset[0];
 
-    if (!staff)
-      return next(
-        new AppError("Doctor profile not found", 404)
-      );
+    if (!staff) return next(new AppError("Doctor profile not found", 404));
 
     doctor_id = staff.staff_id;
     profileType = "staff";
@@ -222,7 +223,6 @@ exports.getDoctorDashboard = catchAsync(async (req, res, next) => {
     `
   ).recordset[0];
 
-
   const upcomingBookings = await sql.query`
     SELECT TOP 5
       b.booking_id,
@@ -263,7 +263,6 @@ exports.getDoctorDashboard = catchAsync(async (req, res, next) => {
       b.booking_from;
   `;
 
-
   const ratings = (
     await sql.query`
       SELECT
@@ -291,7 +290,6 @@ exports.getDoctorDashboard = catchAsync(async (req, res, next) => {
     `
   ).recordset[0];
 
-
   res.status(200).json({
     status: "success",
 
@@ -299,27 +297,21 @@ exports.getDoctorDashboard = catchAsync(async (req, res, next) => {
       profile_type: profileType,
 
       stats: {
-        total_bookings:
-          stats.total_bookings || 0,
+        total_bookings: stats.total_bookings || 0,
 
-        total_patients:
-          stats.total_patients || 0,
+        total_patients: stats.total_patients || 0,
 
-        confirmed_bookings:
-          stats.confirmed_bookings || 0,
+        confirmed_bookings: stats.confirmed_bookings || 0,
 
-        cancelled_bookings:
-          stats.cancelled_bookings || 0,
+        cancelled_bookings: stats.cancelled_bookings || 0,
 
-        today_bookings:
-          stats.today_bookings || 0,
+        today_bookings: stats.today_bookings || 0,
       },
 
       ratings,
 
-      upcoming_bookings:
-        upcomingBookings.recordset,
-    }
+      upcoming_bookings: upcomingBookings.recordset,
+    },
   });
 });
 
